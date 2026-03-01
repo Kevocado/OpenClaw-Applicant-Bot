@@ -1,0 +1,21 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+
+# Playwright
+user_data_dir/
+
+# Screenshots
+screenshots/*.png
+
+# n8n data (Docker volume, but just in case)
+n8n_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
