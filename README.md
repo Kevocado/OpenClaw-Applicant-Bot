@@ -1,54 +1,59 @@
 # OpenClaw Applicant Bot
 
-An autonomous job application and tracking agent powered by **n8n**, **OpenClaw**, **Playwright**, and **Google Gemini Pro**.
+An autonomous job application and tracking agent powered by **n8n**, **OpenClaw**, **nodriver** (undetected Chrome), and **Google Gemini Pro**.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Contabo VPS (Ubuntu)               │
-│                                                      │
-│  ┌──────────────┐    ┌──────────────────────────┐   │
-│  │   n8n         │    │  OpenClaw                 │   │
-│  │  (Docker)     │───▶│  (exec gateway)           │   │
-│  │  Port 5678    │    │  human-approval gating    │   │
-│  └──────┬───────┘    └──────────┬───────────────┘   │
-│         │                       │                    │
-│         ▼                       ▼                    │
-│  ┌──────────────┐    ┌──────────────────────────┐   │
-│  │ Gmail + Sheets│    │ apply_agent.py            │   │
-│  │ (Workflows)   │    │ Playwright + Gemini Pro   │   │
-│  └──────────────┘    └──────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                    Contabo VPS (Ubuntu 24.04)                  │
+│                                                                │
+│  ┌──────────────┐    ┌─────────────────────────────────────┐  │
+│  │   n8n         │    │  OpenClaw (127.0.0.1:3000)          │  │
+│  │  (Docker)     │───▶│  token auth + exec approval         │  │
+│  │  Port 5678    │    └──────────────┬──────────────────────┘  │
+│  └──────┬───────┘                    │                         │
+│         │                            ▼                         │
+│  ┌──────┴───────┐    ┌─────────────────────────────────────┐  │
+│  │ Gmail + Sheets│    │ apply_agent.py                      │  │
+│  │ (Workflows)   │    │ nodriver + Gemini Pro                │  │
+│  └──────────────┘    │ + knowledge_base/ (3 files)          │  │
+│         │            └──────────────┬──────────────────────┘  │
+│         │                           │                          │
+│         ▼                           ▼                          │
+│  ┌──────────────┐    ┌─────────────────────────────────────┐  │
+│  │ Google Sheets │    │ Telegram Bot                        │  │
+│  │ (Tracker)     │    │ (High-tier approvals)               │  │
+│  └──────────────┘    └─────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
 ```
+
+## How It Works
+
+| Company Tier | Action |
+|---|---|
+| **Standard** | Auto-fills form + submits (dry-run by default) |
+| **High** (MBB, Big 4, Capital One, etc.) | Pauses → saves to `pending_approvals.json` → Telegram notification → waits for your approval |
+| **Visa Ineligible** | Skips → logs "Skipped - Visa" → moves on |
 
 ## Project Status
 
-🚧 **Phase 0 — Scaffolding** (current)
-
-See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for the full architecture narrative and [implementation phases](#phases).
-
-## Phases
-
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Infrastructure & Hosting | ⬜ Not started |
-| 2 | Intelligence Layer (Gemini) | ⬜ Not started |
-| 3 | Orchestration (n8n Workflows) | ⬜ Not started |
-| 4 | Execution (Playwright + OpenClaw) | ⬜ Not started |
-| 5 | Testing & Hardening | ⬜ Not started |
+| 0 | Scaffolding & Knowledge Base | ✅ Complete |
+| 1 | Code Implementation | ✅ Complete |
+| 2 | VPS Provisioning | ⬜ Not started |
+| 3 | Connect Accounts & Services | ⬜ Not started |
+| 4 | Activate n8n Workflows | ⬜ Not started |
 
 ## Prerequisites
 
-- Python 3.10+
-- Docker & Docker Compose
-- Node.js (for n8n)
-- Google Gemini API key
-- Contabo VPS (Ubuntu) or equivalent Linux host
+- **Python 3.10+**
+- **Docker & Docker Compose**
+- **Google Chrome** (nodriver automates real Chrome)
+- **Accounts:** Google Cloud (OAuth), Gemini API, Telegram, LinkedIn, Handshake
 
 ## Quick Start
-
-> _Setup instructions will be filled in as each phase is implemented._
 
 ```bash
 # Clone the repo
@@ -58,19 +63,59 @@ cd OpenClaw-Applicant-Bot
 # Install Python dependencies
 pip install -r requirements.txt
 
-# Install Playwright browsers
-playwright install chromium
-
 # Copy and fill in environment variables
 cp .env.example .env
+# Edit .env with your API keys
 
-# Start n8n
+# Start n8n (Docker)
 docker compose up -d
+
+# Test the agent (dry-run mode)
+python apply_agent.py "https://example.com/job-posting"
+```
+
+## Repository Structure
+
+```
+OpenClaw-Applicant-Bot/
+├── PROJECT_OVERVIEW.md          # Living architecture doc
+├── README.md                    # This file
+├── apply_agent.py               # Browser agent (nodriver + Gemini)
+├── docker-compose.yml           # n8n container config
+├── openclaw.json                # Hardened OpenClaw config
+├── n8n_email_parser.js          # n8n Code Node snippet
+├── requirements.txt             # Python dependencies
+├── .env.example                 # Environment variable template
+├── .gitignore
+├── knowledge_base/
+│   ├── honest_resume.txt        # Factual resume data
+│   ├── cover_letter_templates.txt  # Cover letter AI instructions
+│   └── interview_qa_matrix.txt  # Q&A answer boundaries
+├── screenshots/                 # Error screenshots (auto-generated)
+└── pending_approvals.json       # High-tier jobs awaiting approval (auto-generated)
 ```
 
 ## Environment Variables
 
-See [`.env.example`](.env.example) for all required variables.
+| Variable | Description |
+|----------|-------------|
+| `GEMINI_API_KEY` | Google Gemini Pro API key |
+| `N8N_BASIC_AUTH_USER` | n8n web UI username |
+| `N8N_BASIC_AUTH_PASSWORD` | n8n web UI password |
+| `N8N_WEBHOOK_URL` | Public URL for n8n webhooks |
+| `OPENCLAW_AUTH_TOKEN` | UUID token for OpenClaw API auth |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
+| `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
+| `USER_DATA_DIR` | Path to Chrome persistent profile |
+| `GOOGLE_SHEET_ID` | Google Sheets tracker ID |
+
+## Exit Codes
+
+| Code | Meaning | n8n Routing |
+|------|---------|-------------|
+| `0` | Success — application submitted | Log success |
+| `1` | Failure — error, visa skip, timeout | Log failure, continue loop |
+| `2` | High-tier paused — awaiting approval | Route to Telegram Gatekeeper |
 
 ## License
 

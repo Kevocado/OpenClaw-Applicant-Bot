@@ -1,2 +1,34 @@
-# Placeholder — Phase 1 will implement the full docker-compose.yml
-# See PROJECT_OVERVIEW.md for architecture details.
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: openclaw-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # ── Authentication ──
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      # ── Timezone ──
+      - GENERIC_TIMEZONE=${TZ:-America/Chicago}
+      - TZ=${TZ:-America/Chicago}
+      # ── Webhook URL (set to your VPS IP or domain) ──
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # ── Execution settings ──
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - openclaw-net
+
+volumes:
+  n8n_data:
+    driver: local
+
+networks:
+  openclaw-net:
+    driver: bridge

@@ -1,0 +1,47 @@
+KEVIN SIGEY
+Chicago, IL (Willing to relocate) | 646-283-8579 | sigeykevin@gmail.com | linkedin.com/in/kevin-sigey
+Visa Status: F-1 International Student (STEM OPT Eligible for 36 months post-graduation, Dec 2026) [1]
+
+EDUCATION
+University of Illinois Urbana-Champaign (Gies College of Business)
+M.S. in Business Analytics (STEM) | GPA: 3.9 | Expected Dec 2026 [2]
+Coursework: Business Intelligence, Enterprise Data Management, Big Data Infrastructure, Predictive Analytics [2]
+
+New York University (Tandon School of Engineering)
+B.S. in Business and Technology Management (Finance) | GPA: 3.3 | Graduated May 2025 [2]
+Honors: Dean's List (2022-2025), Amazon Hackathon Winner, TEDxNYU Speaker [3]
+
+EXPERIENCE
+WOW Payments | Fintech Marketing Intern | May 2024 - Aug 2024 [4]
+- Analyzed regional marketing campaign data in Excel to track customer contact patterns and identify which customer segments were converting [5, 6].
+- Conducted field sales for card payment processing services, pitching zero-fee merchant solutions to 100+ small business owners [5, 7]. 
+- Validated data patterns with direct customer feedback, discovering that drops in conversion were due to pricing model confusion [8, 9]. 
+- Translated customer feedback into product positioning insights to help refine campaign messaging [7].
+
+Tandon Consulting Club | Vice President | Aug 2024 - May 2025 [10]
+- Grew consulting club from 150 to 450 members (200% growth) by organizing industry panels with McKinsey, BCG, and Deloitte professionals [10, 11].
+- Coached 30+ peers weekly in case interview preparation, analytical problem-solving, and consulting frameworks [10].
+- Facilitated inclusive events to make advanced technical language and consulting frameworks accessible to students of all cultural and academic backgrounds [12, 13].
+
+Freelance Photographer | 2017 - Present [14]
+- Managed client projects for fashion and entertainment brands, achieving 60% engagement growth through data-driven content strategy [11, 14].
+
+PROJECTS
+DOT Foods Supply Chain Optimization (Project Lead) [3]
+- Led a 6-person consulting team analyzing 7,229 delivery loads for North America's largest food redistributor to optimize pallet loading strategy [3, 15].
+- Modeled a 34% increase in pallet density ("shipping air") using Python classification algorithms to shift labor from the uncontrolled driver environment to the efficient warehouse [3, 16, 17].
+- Identified a $3.05M net savings opportunity by demonstrating that warehouse labor costs were vastly outweighed by a 57% reduction in driver unloading fees [3, 17].
+- Presented ROI framework and phased implementation roadmap to the VP of Operations and CIO [3, 18].
+
+S&P 500 ML Predictor: Time-Series Forecasting Engine [19]
+- Built and deployed machine learning model to predict S&P 500 stock movements using LSTM, Random Forest, and XGBoost algorithms, achieving 65%+ accuracy [19].
+
+UIUC Student Housing Market Strategy [4]
+- Performed NLP sentiment analysis on 10,000+ tenant reviews across 3 universities, uncovering a 40% non-response rate to negative feedback to guide a $2M+ investment focus [4].
+
+TECHNICAL SKILLS & CERTIFICATIONS
+Programming: Python (pandas, NumPy, Scikit-learn, LSTM, TensorFlow), SQL, R, JavaScript [14]
+Analytics & BI: Tableau, Power BI, Excel (financial modeling, Solver, VBA), KNIME [14]
+Cloud: AWS (S3, Lambda), Google Cloud (BigQuery) [14]
+Certifications: Google Data Analytics, Bloomberg Market Concepts [20]
+Languages: English (Native), Swahili (Fluent) [21]

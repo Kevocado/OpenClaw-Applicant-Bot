@@ -1,5 +1,5 @@
-# Core dependencies — versions will be pinned in Phase 4
-playwright
+# Core dependencies
+nodriver
 google-generativeai
 python-dotenv
 requests
