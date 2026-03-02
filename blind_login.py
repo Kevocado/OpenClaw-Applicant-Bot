@@ -13,10 +13,10 @@ async def main():
     
     # STEP 1: Enter Credentials (REPLACE THESE)
     email_input = await page.select('input[id="username"]')
-    await email_input.send_keys("YOUR_LINKEDIN_EMAIL")
+    await email_input.send_keys("sigeykevin@gmail.com")
     
     password_input = await page.select('input[id="password"]')
-    await password_input.send_keys("YOUR_LINKEDIN_PASSWORD")
+    await password_input.send_keys("NYUkev2025##")
     
     # Click Sign In
     button = await page.select('button[type="submit"]')
