@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import re
 import google.generativeai as genai
 from telegram import Update
@@ -69,8 +70,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(target_path, "w") as f:
             json.dump(new_config, f, indent=4)
             
+        # Push changes to GitHub
+        try:
+            repo_dir = os.path.dirname(target_path)
+            subprocess.run(["git", "add", target_path], cwd=repo_dir, check=True)
+            subprocess.run(["git", "commit", "-m", f"bot: auto-update {router_response} config via Telegram"], cwd=repo_dir, check=True)
+            subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, check=True)
+            git_status = " 🐙 (Synced to GitHub)"
+        except Exception as git_err:
+            git_status = f" ⚠️ (Git Sync Failed: {git_err})"
+            
         # Use HTML parsing to avoid strict MarkdownV2 escaping issues
-        success_msg = f"✅ <b>{router_response} Updated!</b>\n\n<pre><code class='language-json'>{json.dumps(new_config, indent=2)}</code></pre>"
+        success_msg = f"✅ <b>{router_response} Updated!</b>{git_status}\n\n<pre><code class='language-json'>{json.dumps(new_config, indent=2)}</code></pre>"
         await update.message.reply_text(success_msg, parse_mode='HTML')
 
     except Exception as e:
