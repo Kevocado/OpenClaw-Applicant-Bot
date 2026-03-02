@@ -35,6 +35,7 @@ services:
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
       - N8N_SECURE_COOKIE=false
+      - N8N_NODES_EXCLUDE=[]
     ports:
       - "5678:5678"
     volumes:
