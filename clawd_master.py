@@ -50,6 +50,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_bot = BOT_REGISTRY[router_response]
     target_path = target_bot["path"]
 
+    # Helper function to escape MarkdownV2 reserved characters
+    def escape_md(text):
+        escape_chars = r'_*[\]()~`>#+-=|{}.!'
+        return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
+
     # STEP 2: LOAD & EDIT CONFIG
     try:
         with open(target_path, "r") as f:
@@ -69,10 +74,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(target_path, "w") as f:
             json.dump(new_config, f, indent=4)
             
-        await update.message.reply_text(f"✅ *{router_response} Updated!*\n\n```json\n{json.dumps(new_config, indent=2)}\n```", parse_mode='MarkdownV2')
+        escaped_bot_name = escape_md(router_response)
+        escaped_json = escape_md(json.dumps(new_config, indent=2))
+        
+        success_msg = f"✅ *{escaped_bot_name} Updated\\!*\n\n```json\n{escaped_json}\n```"
+        await update.message.reply_text(success_msg, parse_mode='MarkdownV2')
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {e}")
+        error_msg = escape_md(f"⚠️ Error: {e}")
+        await update.message.reply_text(error_msg, parse_mode='MarkdownV2')
 
 if __name__ == "__main__":
     print("🤖 Master ClawdBot Online.")
