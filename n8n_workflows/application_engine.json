@@ -99,20 +99,33 @@
         },
         {
             "parameters": {
-                "conditions": {
-                    "number": [
+                "dataType": "number",
+                "value1": "={{ $json.exitCode }}",
+                "rules": {
+                    "rules": [
                         {
-                            "value1": "={{ $json.exitCode }}",
+                            "value2": 0,
+                            "output": 0
+                        },
+                        {
                             "value2": 2,
-                            "operation": "equal"
+                            "output": 1
+                        },
+                        {
+                            "value2": 3,
+                            "output": 2
+                        },
+                        {
+                            "value2": 1,
+                            "output": 3
                         }
                     ]
                 }
             },
-            "id": "check-tier",
-            "name": "High Tier?",
-            "type": "n8n-nodes-base.if",
-            "typeVersion": 2,
+            "id": "switch-routing",
+            "name": "Match Routing",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 1,
             "position": [
                 1450,
                 200
@@ -157,7 +170,7 @@
                 "columns": {
                     "mappingMode": "defineBelow",
                     "value": {
-                        "Status": "={{ $json.exitCode === 0 ? 'Applied' : $json.exitCode === 2 ? 'Pending Approval' : 'Failed' }}",
+                        "Status": "={{ $json.exitCode === 0 ? 'Applied' : $json.exitCode === 2 ? 'Pending Approval' : $json.exitCode === 3 ? 'Skipped' : 'Failed' }}",
                         "Company": "={{ $json.Company }}",
                         "Role": "={{ $json.Role }}",
                         "ATS_System": "={{ $json.ATS_System }}",
@@ -173,8 +186,8 @@
             "type": "n8n-nodes-base.googleSheets",
             "typeVersion": 4.5,
             "position": [
-                1700,
-                350
+                1950,
+                300
             ],
             "credentials": {
                 "googleSheetsOAuth2Api": {
@@ -193,7 +206,7 @@
             "type": "n8n-nodes-base.wait",
             "typeVersion": 1.1,
             "position": [
-                1950,
+                2200,
                 200
             ]
         }
@@ -254,18 +267,32 @@
             "main": [
                 [
                     {
-                        "node": "High Tier?",
+                        "node": "Match Routing",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "High Tier?": {
+        "Match Routing": {
             "main": [
                 [
                     {
+                        "node": "Update Queue Row",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
                         "node": "Telegram Alert",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Update Queue Row",
                         "type": "main",
                         "index": 0
                     }
@@ -283,7 +310,7 @@
             "main": [
                 [
                     {
-                        "node": "Cooldown (15s)",
+                        "node": "Update Queue Row",
                         "type": "main",
                         "index": 0
                     }

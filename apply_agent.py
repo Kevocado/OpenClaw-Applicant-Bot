@@ -27,6 +27,10 @@ KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_HIGH_TIER_PAUSED = 2  # Signals n8n to route to Telegram for approval
+EXIT_LOW_SCORE = 3         # Signals n8n to auto-reject application
+
+# DataImpulse Residential Proxy
+PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
 # High-tier companies that require manual approval
 HIGH_TIER_COMPANIES = [
@@ -462,20 +466,26 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
     print("[JOB] Analyzing job with Gemini...")
     analysis = analyze_job(client, job_url, jd_text, kb)
 
-    # Step 3: Visa Gatekeeper
+    # Step 3: Low Score Auto-Reject (Path 1)
+    if analysis.get("Match_Score", 0) <= 5:
+        print(f"[JOB] SKIPPED — Match Score too low ({analysis.get('Match_Score', 0)}/10)")
+        await take_screenshot(page, "skipped_low_score")
+        return EXIT_LOW_SCORE
+
+    # Step 4: Visa Gatekeeper
     if not analysis["visa_eligible"]:
         print(f"[JOB] SKIPPED — Visa ineligible: {analysis.get('reason', 'Requires US authorization')}")
         await take_screenshot(page, "skipped_visa")
         return EXIT_FAILURE
 
-    # Step 4: Company Tier Routing
+    # Step 5: Company Tier Routing (Path 2)
     if analysis["company_tier"] == "High":
         print("[JOB] HIGH-TIER company detected — pausing for Telegram approval")
         save_pending_approval(job_url, analysis)
         await take_screenshot(page, "high_tier_paused")
         return EXIT_HIGH_TIER_PAUSED
 
-    # Step 5: Standard-tier → Auto-fill and submit
+    # Step 6: Standard-tier → Auto-fill and submit (Path 3)
     print("[JOB] STANDARD-TIER — proceeding with auto-fill")
     await fill_application_form(page, analysis)
 
@@ -539,6 +549,7 @@ async def main():
         browser_args=[
             "--window-size=1920,1080",
             "--disable-blink-features=AutomationControlled",
+            f"--proxy-server={PROXY_SERVER}",
             "--no-sandbox",
             "--disable-dev-shm-usage",
         ],
