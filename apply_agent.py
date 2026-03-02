@@ -1,4 +1,5 @@
 import asyncio
+import random
 import json
 import os
 import re
@@ -455,6 +456,10 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
     print(f"[JOB] Navigating to: {job_url}")
     print(f"{'='*60}")
 
+    # Give the page plenty of time to fully load all its heavy tracking scripts
+    print("[JOB] Waiting for page to fully render...")
+    await asyncio.sleep(random.uniform(5.0, 8.5))
+
     # Wait for page to fully load (LinkedIn is JS-heavy)
     print("[JOB] Waiting for page to load...")
     await asyncio.sleep(8)
@@ -568,6 +573,10 @@ async def main():
         print("[AUTH] Injecting LinkedIn session cookie...")
         # Navigate to a safe page to establish domain context
         page = await browser.get("https://www.linkedin.com/robots.txt")
+        
+        # Pause for 2 to 4 seconds to simulate reading the page
+        await asyncio.sleep(random.uniform(2.1, 4.5)) 
+        
         await page.send(network.set_cookie(
             name="li_at",
             value=li_at_cookie,
@@ -576,7 +585,10 @@ async def main():
             secure=True,
             http_only=True
         ))
-        print("[AUTH] Cookie injected successfully.")
+        print("[AUTH] Cookie injected successfully. Simulating human pause...")
+        
+        # Pause before jumping to the job URL (Crucial for bypassing 429s)
+        await asyncio.sleep(random.uniform(3.5, 6.8))
     else:
         print("⚠️ WARNING: LINKEDIN_LI_AT not found in .env. Bot may face login walls.")
     # -----------------------------------
