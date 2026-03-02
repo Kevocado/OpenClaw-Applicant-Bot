@@ -1,5 +1,5 @@
 # Core dependencies
 nodriver
-google-generativeai
+google-genai
 python-dotenv
 requests

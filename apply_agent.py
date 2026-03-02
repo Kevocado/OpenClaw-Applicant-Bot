@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import nodriver as uc
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -65,18 +65,17 @@ def load_knowledge_base() -> dict:
 
 # ─── Gemini Integration ──────────────────────────────────────────────────────
 
-def init_gemini() -> genai.GenerativeModel:
-    """Initialize the Gemini Pro model."""
+def init_gemini() -> genai.Client:
+    """Initialize the Gemini client."""
     if not GEMINI_API_KEY:
         print("[ERROR] GEMINI_API_KEY not set in environment")
         sys.exit(EXIT_FAILURE)
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-pro")
-    print("[GEMINI] Model initialized: gemini-1.5-pro")
-    return model
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    print("[GEMINI] Client initialized (gemini-2.0-flash)")
+    return client
 
 
-def analyze_job(model: genai.GenerativeModel, job_url: str, job_description: str, knowledge_base: dict) -> dict:
+def analyze_job(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
     """
     Analyze a job posting using Gemini Pro.
     Returns strict JSON: {visa_eligible, company_tier, generated_cover_letter, qa_answers}
@@ -134,9 +133,10 @@ JOB DESCRIPTION:
 """
 
     try:
-        response = model.generate_content(
-            [system_prompt, user_prompt],
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[system_prompt, user_prompt],
+            config=genai.types.GenerateContentConfig(
                 temperature=0.3,
                 response_mime_type="application/json",
             ),
@@ -302,7 +302,7 @@ async def take_screenshot(page, label: str):
 
 # ─── Main Application Loop ───────────────────────────────────────────────────
 
-async def apply_to_job(browser, job_url: str, model: genai.GenerativeModel, kb: dict) -> int:
+async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) -> int:
     """
     Main application flow for a single job.
     Returns exit code: 0=success, 1=failure, 2=high-tier paused.
@@ -324,7 +324,7 @@ async def apply_to_job(browser, job_url: str, model: genai.GenerativeModel, kb: 
 
     # Step 2: Analyze with Gemini
     print("[JOB] Analyzing job with Gemini...")
-    analysis = analyze_job(model, job_url, jd_text, kb)
+    analysis = analyze_job(client, job_url, jd_text, kb)
 
     # Step 3: Visa Gatekeeper
     if not analysis["visa_eligible"]:
@@ -390,21 +390,26 @@ async def main():
     kb = load_knowledge_base()
 
     # Initialize Gemini
-    model = init_gemini()
+    client = init_gemini()
 
-    # Launch undetected Chrome with persistent profile
-    print(f"[BROWSER] Launching nodriver with profile: {USER_DATA_DIR}")
+    # Detect if we have a display (local) or not (VPS)
+    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
+    headless_mode = not has_display
+    print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={USER_DATA_DIR})")
+
     browser = await uc.start(
         user_data_dir=USER_DATA_DIR,
-        headless=False,
+        headless=headless_mode,
         browser_args=[
             "--window-size=1920,1080",
             "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
         ],
     )
 
     try:
-        exit_code = await apply_to_job(browser, job_url, model, kb)
+        exit_code = await apply_to_job(browser, job_url, client, kb)
     except TimeoutError:
         print("[AGENT] ERROR: Page load timeout")
         exit_code = EXIT_FAILURE
