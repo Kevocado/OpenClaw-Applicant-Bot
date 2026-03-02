@@ -1,34 +1,16 @@
 {
-  "$schema": "https://openctx.org/schema/openclaw.json",
-  "_comment": "Hardened OpenClaw config — loopback only, token auth, exec approval required",
-  "server": {
-    "host": "127.0.0.1",
-    "port": 3000
-  },
-  "auth": {
-    "type": "token",
-    "token": "${OPENCLAW_AUTH_TOKEN}"
+  "gateway": {
+    "bind": "127.0.0.1",
+    "port": 8000,
+    "auth": {
+      "enabled": true,
+      "token_env": "OPENCLAW_AUTH_TOKEN"
+    }
   },
   "tools": {
     "exec": {
       "enabled": true,
-      "ask": "always",
-      "allowed_commands": [
-        "python apply_agent.py*",
-        "cat pending_approvals.json",
-        "ls screenshots/"
-      ]
-    },
-    "read_file": {
-      "enabled": true,
-      "allowed_paths": [
-        "./knowledge_base/*",
-        "./pending_approvals.json",
-        "./screenshots/*"
-      ]
-    },
-    "write_file": {
-      "enabled": false
+      "ask": "always"
     },
     "nodes": {
       "enabled": false
@@ -45,10 +27,5 @@
     "computer": {
       "enabled": false
     }
-  },
-  "sandbox": false,
-  "logging": {
-    "level": "info",
-    "file": "./logs/openclaw.log"
   }
 }
