@@ -1,0 +1,142 @@
+{
+    "name": "Historical Inbox Scanner",
+    "nodes": [
+        {
+            "parameters": {},
+            "name": "Manual Trigger",
+            "type": "n8n-nodes-base.manualTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "resource": "message",
+                "operation": "getAll",
+                "limit": 100,
+                "q": "in:inbox OR in:archive (subject:\"application\" OR subject:\"applied\" OR subject:\"thank you\") -label:sent",
+                "returnAll": true
+            },
+            "name": "Fetch Gmail History",
+            "type": "n8n-nodes-base.gmail",
+            "typeVersion": 2,
+            "position": [
+                200,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "model": "gemini-2.0-flash",
+                "prompt": "=Analyze this email snippet and return strictly JSON.\nSubject: {{ $json.subject }}\nSnippet: {{ $json.snippet }}\n\nIs this a real job application confirmation? (Ignore credit cards, apartments, random signups).\nReturn ONLY:\n{\"is_job\": true/false, \"company\": \"Name\", \"role\": \"Title\"}"
+            },
+            "name": "Gemini AI Filter",
+            "type": "@n8n/n8n-nodes-langchain.agent",
+            "typeVersion": 1,
+            "position": [
+                400,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{ $json.is_job }}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Is Job Application?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                600,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "append",
+                "documentId": {
+                    "__rl": true,
+                    "value": "1pdy5cOsX0HWSKD7MX1YzkGSxAl0DEn69iYPSYPI9kZ0",
+                    "mode": "id"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "value": "History",
+                    "mode": "name"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "Company": "={{ $json.company }}",
+                        "Role": "={{ $json.role }}",
+                        "Date_Applied": "={{ $node[\"Fetch Gmail History\"].json.date }}"
+                    }
+                },
+                "options": {}
+            },
+            "name": "Append to History Tab",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4,
+            "position": [
+                800,
+                -100
+            ]
+        }
+    ],
+    "connections": {
+        "Manual Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Gmail History",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Gmail History": {
+            "main": [
+                [
+                    {
+                        "node": "Gemini AI Filter",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Gemini AI Filter": {
+            "main": [
+                [
+                    {
+                        "node": "Is Job Application?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Is Job Application?": {
+            "main": [
+                [
+                    {
+                        "node": "Append to History Tab",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {},
+    "active": false
+}
