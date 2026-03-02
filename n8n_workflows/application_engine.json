@@ -1,0 +1,278 @@
+{
+    "name": "Application Engine",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "0 2 * * *"
+                        }
+                    ]
+                }
+            },
+            "id": "cron-trigger",
+            "name": "2AM Nightly Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "read",
+                "documentId": {
+                    "__rl": true,
+                    "value": "REPLACE_WITH_YOUR_SHEET_ID",
+                    "mode": "id"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "value": "Queue",
+                    "mode": "name"
+                },
+                "filters": {
+                    "column": "Status",
+                    "value": "Queued"
+                },
+                "options": {}
+            },
+            "id": "sheets-read",
+            "name": "Read Job Queue",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+                500,
+                300
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "id": "REPLACE_WITH_YOUR_SHEETS_CREDENTIAL_ID",
+                    "name": "Google Sheets account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "options": {}
+            },
+            "id": "loop-items",
+            "name": "Loop Over Jobs",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                750,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "command": "=cd /root/OpenClaw-Applicant-Bot && source venv/bin/activate && python apply_agent.py \"{{ $json.Job_URL }}\"",
+                "options": {
+                    "timeout": 120000
+                }
+            },
+            "id": "exec-agent",
+            "name": "Run Apply Agent",
+            "type": "n8n-nodes-base.executeCommand",
+            "typeVersion": 1,
+            "position": [
+                1000,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "number": [
+                        {
+                            "value1": "={{ $json.exitCode }}",
+                            "value2": 2,
+                            "operation": "equal"
+                        }
+                    ]
+                }
+            },
+            "id": "check-tier",
+            "name": "High Tier?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                1250,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
+                "text": "=🔔 **HIGH-TIER APPLICATION PAUSED**\n\nA high-tier company application needs your approval.\n\nCheck `pending_approvals.json` on the VPS for the generated cover letter and QA answers.\n\nReply /approve to submit, or /skip to pass.",
+                "additionalFields": {
+                    "parse_mode": "Markdown"
+                }
+            },
+            "id": "telegram-notify",
+            "name": "Telegram Alert",
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                1500,
+                100
+            ],
+            "credentials": {
+                "telegramApi": {
+                    "id": "REPLACE_WITH_YOUR_TELEGRAM_CREDENTIAL_ID",
+                    "name": "Telegram Bot"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "documentId": {
+                    "__rl": true,
+                    "value": "REPLACE_WITH_YOUR_SHEET_ID",
+                    "mode": "id"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "value": "Queue",
+                    "mode": "name"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "Status": "={{ $json.exitCode === 0 ? 'Applied' : $json.exitCode === 2 ? 'Pending Approval' : 'Failed' }}"
+                    }
+                },
+                "options": {}
+            },
+            "id": "sheets-update",
+            "name": "Update Status",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.5,
+            "position": [
+                1500,
+                300
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "id": "REPLACE_WITH_YOUR_SHEETS_CREDENTIAL_ID",
+                    "name": "Google Sheets account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "value": 15000,
+                "unit": "milliseconds"
+            },
+            "id": "wait-between",
+            "name": "Cooldown (15s)",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1.1,
+            "position": [
+                1250,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "2AM Nightly Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Read Job Queue",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Read Job Queue": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Jobs",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Over Jobs": {
+            "main": [
+                [
+                    {
+                        "node": "Run Apply Agent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Update Status",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Run Apply Agent": {
+            "main": [
+                [
+                    {
+                        "node": "High Tier?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "High Tier?": {
+            "main": [
+                [
+                    {
+                        "node": "Telegram Alert",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Cooldown (15s)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Telegram Alert": {
+            "main": [
+                [
+                    {
+                        "node": "Cooldown (15s)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Cooldown (15s)": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Over Jobs",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}
