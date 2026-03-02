@@ -2,21 +2,48 @@ import asyncio
 import json
 import re
 import nodriver as uc
-
 import urllib.parse
-
 import os
+from google import genai
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Load config from openclaw.json
 try:
     with open("openclaw.json", "r") as f:
         config = json.load(f).get("scout_config", {})
-    search_queries = config.get("target_roles", [])
+    base_roles = config.get("target_roles", [])
     TARGET_ROLES = config.get("keywords", []) + ["Engineer", "Developer", "Data", "Product", "Intern"]
 except Exception as e:
     print(f"[SCOUT] Error loading openclaw.json: {e}")
-    search_queries = ["Software Engineer Intern"]
+    base_roles = ["Software Engineer Intern"]
     TARGET_ROLES = ["Software", "Engineer", "Intern"]
+    config = {}
+
+def generate_search_queries(base_roles, config):
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return base_roles[:3]
+        client = genai.Client(api_key=api_key)
+        prompt = f"Given these target roles: {base_roles} and keywords: {config.get('keywords', [])}. Generate exactly 5 diverse, highly effective job search query strings that capture semantic variations (e.g. abbreviations, different titles, specific keywords) for job boards. Return ONLY a JSON array of strings. Example: ['Software Engineer Intern Summer 2026', 'SWE Intern OPT', 'Data Scientist Visa Sponsorship']"
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                temperature=0.7,
+                response_mime_type="application/json",
+            ),
+        )
+        queries = json.loads(response.text)
+        if isinstance(queries, list) and len(queries) > 0:
+            return queries[:5]
+    except Exception as e:
+        print(f"[SCOUT] Failed to generate AI queries: {e}")
+    return base_roles
+
+search_queries = generate_search_queries(base_roles, config)
 
 PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
