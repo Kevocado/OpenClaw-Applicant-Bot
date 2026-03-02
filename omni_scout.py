@@ -4,7 +4,7 @@ import re
 import nodriver as uc
 import urllib.parse
 import os
-from google import genai
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,16 +26,12 @@ def generate_search_queries(base_roles, config):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             return base_roles[:3]
-        client = genai.Client(api_key=api_key)
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json", "temperature": 0.7})
+        
         prompt = f"Given these target roles: {base_roles} and keywords: {config.get('keywords', [])}. Generate exactly 5 diverse, highly effective job search query strings that capture semantic variations (e.g. abbreviations, different titles, specific keywords) for job boards. Return ONLY a JSON array of strings. Example: ['Software Engineer Intern Summer 2026', 'SWE Intern OPT', 'Data Scientist Visa Sponsorship']"
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                temperature=0.7,
-                response_mime_type="application/json",
-            ),
-        )
+        
+        response = model.generate_content(prompt)
         queries = json.loads(response.text)
         if isinstance(queries, list) and len(queries) > 0:
             return queries[:5]
