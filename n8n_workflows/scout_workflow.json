@@ -1,0 +1,110 @@
+{
+    "name": "Omni-Scout Engine",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "0 1 * * *"
+                        }
+                    ]
+                }
+            },
+            "name": "Schedule (1:00 AM)",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [
+                0,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "command": "cd /root/OpenClaw-Applicant-Bot && source venv/bin/activate && python omni_scout.py"
+            },
+            "name": "Execute Omni-Scout",
+            "type": "n8n-nodes-base.executeCommand",
+            "typeVersion": 1,
+            "position": [
+                200,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const stdout = $input.first().json.stdout;\nconst jsonStr = stdout.split('SCOUT_JSON::')[1];\nconst jobs = JSON.parse(jsonStr.trim());\n\nreturn jobs.map(job => {\n  return {\n    json: {\n      Job_URL: job.Job_URL,\n      Company: job.Company,\n      Role: job.Role,\n      ATS_System: job.ATS_System,\n      Status: 'Queued'\n    }\n  };\n});"
+            },
+            "name": "Parse & Split JSON",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 1,
+            "position": [
+                400,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "append",
+                "documentId": {
+                    "__rl": true,
+                    "value": "1pdy5cOsX0HWSKD7MX1YzkGSxAl0DEn69iYPSYPI9kZ0",
+                    "mode": "id"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "value": "Queue",
+                    "mode": "name"
+                },
+                "columns": {
+                    "mappingMode": "autoMapInputData"
+                },
+                "options": {}
+            },
+            "name": "Append to Tracker Queue",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4,
+            "position": [
+                600,
+                0
+            ]
+        }
+    ],
+    "connections": {
+        "Schedule (1:00 AM)": {
+            "main": [
+                [
+                    {
+                        "node": "Execute Omni-Scout",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Execute Omni-Scout": {
+            "main": [
+                [
+                    {
+                        "node": "Parse & Split JSON",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse & Split JSON": {
+            "main": [
+                [
+                    {
+                        "node": "Append to Tracker Queue",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": false
+}
