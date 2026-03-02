@@ -5,18 +5,20 @@ import nodriver as uc
 
 import urllib.parse
 
-PROXY_SERVER = "http://gw.dataimpulse.com:823"
-TARGET_ROLES = ["Data Analyst", "Business Analyst", "Data", "Analytics", "SQL", "Python", "Intern"]
+import os
 
-search_queries = [
-    "Data Analyst Intern Summer 2026",
-    "Business Analytics Intern Summer 2026",
-    "Immediate hire Data Intern",
-    "Remote Analytics Intern 2026",
-    "Startup Data Intern Summer",
-    "SQL Python Intern",
-    "Urgent Data Analyst Internship"
-]
+# Load config from openclaw.json
+try:
+    with open("openclaw.json", "r") as f:
+        config = json.load(f).get("scout_config", {})
+    search_queries = config.get("target_roles", [])
+    TARGET_ROLES = config.get("keywords", []) + ["Engineer", "Developer", "Data", "Product", "Intern"]
+except Exception as e:
+    print(f"[SCOUT] Error loading openclaw.json: {e}")
+    search_queries = ["Software Engineer Intern"]
+    TARGET_ROLES = ["Software", "Engineer", "Intern"]
+
+PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
 async def extract_jobs_from_dom(page, platform, priority):
     """
