@@ -34,6 +34,7 @@ services:
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
+      - N8N_SECURE_COOKIE=false
     ports:
       - "5678:5678"
     volumes:
