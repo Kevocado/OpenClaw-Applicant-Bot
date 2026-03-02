@@ -7,25 +7,86 @@
       "token_env": "OPENCLAW_AUTH_TOKEN"
     }
   },
-  "tools": {
-    "exec": {
-      "enabled": true,
-      "ask": "always"
+  "agents": {
+    "job_bot": {
+      "name": "The Sniper",
+      "workspace": "~/.openclaw/workspace-jobs",
+      "routing": {
+        "telegram_bot": "@OpenClawKevin"
+      },
+      "tools": {
+        "exec": {
+          "enabled": false
+        },
+        "write": {
+          "enabled": false
+        },
+        "browser": {
+          "enabled": true
+        },
+        "read": {
+          "enabled": true,
+          "allowed_paths": [
+            "./knowledge_base/"
+          ]
+        },
+        "nodes": {
+          "enabled": false
+        },
+        "canvas": {
+          "enabled": false
+        },
+        "llm_task": {
+          "enabled": false
+        },
+        "computer": {
+          "enabled": false
+        }
+      }
     },
-    "nodes": {
-      "enabled": false
-    },
-    "canvas": {
-      "enabled": false
-    },
-    "llm_task": {
-      "enabled": false
-    },
-    "browser": {
-      "enabled": false
-    },
-    "computer": {
-      "enabled": false
+    "developer": {
+      "name": "The Researcher",
+      "workspace": "~/.openclaw/workspace-dev",
+      "routing": {
+        "telegram_bot": "@OpenClawDev"
+      },
+      "sandbox": {
+        "mode": "all",
+        "workspaceAccess": "ro"
+      },
+      "skills": [
+        "market-research",
+        "python-patterns",
+        "continuous-learning"
+      ],
+      "tools": {
+        "exec": {
+          "enabled": true,
+          "ask": "always"
+        },
+        "write": {
+          "enabled": true,
+          "ask": "always"
+        },
+        "browser": {
+          "enabled": false
+        },
+        "read": {
+          "enabled": true
+        },
+        "nodes": {
+          "enabled": false
+        },
+        "canvas": {
+          "enabled": false
+        },
+        "llm_task": {
+          "enabled": false
+        },
+        "computer": {
+          "enabled": false
+        }
+      }
     }
   }
 }
