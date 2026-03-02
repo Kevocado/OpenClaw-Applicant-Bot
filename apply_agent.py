@@ -166,7 +166,7 @@ Analyze the following job description and return a JSON object with these exact 
 9. "generated_cover_letter" (string):
    - Use the MASTER TEMPLATE from the cover letter templates file.
    - Follow the TONE ADJUSTMENTS for the company type.
-   - Must be between 200-300 words based on company type.
+   - CRITICAL: Your generated cover letter MUST be STRICTLY between 200 and 300 words. Do not exceed 300 words.
    - MUST include the $3.05M DOT Foods savings metric.
    - MUST include the 100+ WOW Payments field sales conversations.
    - Mention F-1 STEM OPT (36 months) only if the JD mentions international students.
