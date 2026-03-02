@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # Explicitly load the cross-project .env file
 load_dotenv("/root/OpenClaw-Applicant-Bot/.env")
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_TOKEN = os.getenv("CLAWD_TOKEN") or os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
 
 chat_id_str = os.getenv("ALLOWED_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
 ALLOWED_CHAT_ID = int(chat_id_str) if chat_id_str else 0
