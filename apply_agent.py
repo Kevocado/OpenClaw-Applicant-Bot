@@ -176,6 +176,14 @@ Analyze the following job description and return a JSON object with these exact 
    - Mention F-1 STEM OPT (36 months) only if the JD mentions international students.
    - Replace all [BRACKETED] sections with company-specific information.
    - Reference the most relevant project from the PROJECT CONTEXT based on JD keywords.
+   
+   [HUMANIZER SKILL PROTOCOL ACTIVATED]
+   You must transform this cover letter using the Humanizer module guidelines.
+   1. Remove all signs of AI-generated writing. 
+   2. Do not use robotic transition words or overly formal vocabulary (e.g., avoid "furthermore", "delve", "testament to", "crucial").
+   3. Write with the natural, slightly imperfect cadence of a human professional. 
+   4. Keep sentence structures varied but grounded strictly in the provided resume achievements.
+
 
 10. "qa_answers" (object):
     - Keys are common application questions found in the job posting.
