@@ -10,8 +10,11 @@ from dotenv import load_dotenv
 # Explicitly load the cross-project .env file
 load_dotenv("/root/OpenClaw-Applicant-Bot/.env")
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID"))
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+
+chat_id_str = os.getenv("ALLOWED_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+ALLOWED_CHAT_ID = int(chat_id_str) if chat_id_str else 0
+
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -32,9 +35,11 @@ BOT_REGISTRY = {
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID:
+        print(f"⚠️ UNAUTHORIZED MESSAGE IGNORED: Received from Chat ID {update.effective_chat.id}, but expected {ALLOWED_CHAT_ID}")
         return
 
     user_text = update.message.text
+    print(f"📩 Received authorized command from Kevin: {user_text}")
     await update.message.reply_chat_action(action="typing")
 
     # STEP 1: ROUTING - Which bot does Kevin want to talk to?
