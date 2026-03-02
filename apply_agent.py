@@ -510,10 +510,8 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
             submit_btn = await page.query_selector(selector)
             if submit_btn:
                 print(f"[JOB] Found submit button: {selector}")
-                # TODO: Uncomment when ready for production
-                # await submit_btn.click()
-                # print("[JOB] ✅ Application submitted!")
-                print("[JOB] ⚠️  DRY RUN — submit button found but not clicked (safety mode)")
+                await submit_btn.click()
+                print("[JOB] ✅ Application submitted!")
                 await take_screenshot(page, "ready_to_submit")
                 return EXIT_SUCCESS
         except Exception:
