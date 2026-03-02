@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import nodriver as uc
+import nodriver.cdp.network as network
 from google import genai
 from dotenv import load_dotenv
 
@@ -560,6 +561,25 @@ async def main():
             "--disable-dev-shm-usage",
         ],
     )
+
+    # --- NEW COOKIE INJECTION BLOCK ---
+    li_at_cookie = os.getenv("LINKEDIN_LI_AT")
+    if li_at_cookie:
+        print("[AUTH] Injecting LinkedIn session cookie...")
+        # Navigate to a safe page to establish domain context
+        page = await browser.get("https://www.linkedin.com/robots.txt")
+        await page.send(network.set_cookie(
+            name="li_at",
+            value=li_at_cookie,
+            domain=".linkedin.com",
+            path="/",
+            secure=True,
+            http_only=True
+        ))
+        print("[AUTH] Cookie injected successfully.")
+    else:
+        print("⚠️ WARNING: LINKEDIN_LI_AT not found in .env. Bot may face login walls.")
+    # -----------------------------------
 
     try:
         exit_code = await apply_to_job(browser, job_url, client, kb)
