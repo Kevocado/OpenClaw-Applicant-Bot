@@ -5,6 +5,7 @@ __pycache__/
 
 # Playwright
 user_data_dir/
+auth_profile.zip
 
 # Screenshots
 screenshots/*.png

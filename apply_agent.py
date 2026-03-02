@@ -22,7 +22,6 @@ USER_DATA_DIR = os.getenv("USER_DATA_DIR", "./user_data_dir")
 SCREENSHOTS_DIR = Path("./screenshots")
 PENDING_APPROVALS_FILE = Path("./pending_approvals.json")
 KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
-
 # Exit codes for n8n orchestration
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
@@ -557,6 +556,7 @@ async def main():
             "--disable-blink-features=AutomationControlled",
             f"--proxy-server={PROXY_SERVER}",
             "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
         ],
     )
