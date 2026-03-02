@@ -32,10 +32,14 @@ if [ ! -f ".env" ]; then
 fi
 echo "  → .env file ready"
 
-# ─── Step 3: Install Python dependencies ───
+# ─── Step 3: Install Python dependencies (venv for Ubuntu 24.04) ───
 echo ""
-echo "[3/6] Installing Python dependencies..."
-pip3 install --quiet -r requirements.txt
+echo "[3/6] Setting up Python virtual environment..."
+apt-get install -y python3-venv python3-full > /dev/null 2>&1
+python3 -m venv venv
+source venv/bin/activate
+pip install --quiet --upgrade pip
+pip install --quiet -r requirements.txt
 echo "  → Python deps installed"
 
 # ─── Step 4: Create required directories ───
