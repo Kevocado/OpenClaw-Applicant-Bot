@@ -7,7 +7,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
 
-load_dotenv()
+# Explicitly load the cross-project .env file
+load_dotenv("/root/OpenClaw-Applicant-Bot/.env")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID"))
@@ -40,10 +41,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     routing_prompt = f"""
     The user request is: "{user_text}"
     Available bots: {list(BOT_REGISTRY.keys())}
-    Which bot is the user trying to configure? Return ONLY the exact dictionary key string. If unsure, return 'unknown'.
+    Which bot is the user trying to configure? Return ONLY the exact dictionary key string. 
+    If the user is asking you to run a script, check logs, or execute a server command, return 'sys_command'.
+    If unsure, return 'unknown'.
     """
     router_response = model.generate_content(routing_prompt).text.strip()
     
+    if router_response == "sys_command":
+        cmd_prompt = f"""
+        The user wants to run a command on their Ubuntu VPS.
+        User Request: "{user_text}"
+        Return ONLY the raw bash command to execute. No markdown, no explanation.
+        """
+        cmd_to_run = model.generate_content(cmd_prompt).text.strip()
+        cmd_to_run = re.sub(r"```bash|```", "", cmd_to_run).strip()
+        
+        try:
+            result = subprocess.run(cmd_to_run, shell=True, capture_output=True, text=True, timeout=60, cwd="/root/OpenClaw-Applicant-Bot")
+            out = result.stdout.strip()[-3000:] if result.stdout else "No standard output."
+            err = result.stderr.strip()[-1000:] if result.stderr else ""
+            
+            msg = f"🖥️ <b>Command Executed:</b>\n<pre>{cmd_to_run}</pre>\n\n<b>Output:</b>\n<pre>{out}</pre>"
+            if err:
+                 msg += f"\n<b>Errors:</b>\n<pre>{err}</pre>"
+            await update.message.reply_text(msg, parse_mode='HTML')
+        except subprocess.TimeoutExpired:
+            await update.message.reply_text(f"⚠️ <b>Command Timed Out (60s limit).</b>", parse_mode='HTML')
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ <b>Command Failed:</b>\n<pre>{str(e)}</pre>", parse_mode='HTML')
+        return
+
     if router_response not in BOT_REGISTRY:
         await update.message.reply_text("🤔 I'm not sure which bot you want to update. Please clarify.")
         return
