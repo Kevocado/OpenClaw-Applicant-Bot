@@ -8,7 +8,7 @@ def run_pipeline():
     print("🚀 Starting Omni-Scout Phase...")
     # Run the scout and capture its output
     scout_process = subprocess.run(
-        ["xvfb-run", sys.executable, "omni_scout.py"], 
+        [sys.executable, "omni_scout.py"], 
         capture_output=True, 
         text=True
     )
@@ -31,7 +31,7 @@ def run_pipeline():
         print(f"\n[{i}/{len(jobs)}] Applying to: {job.get('Company', 'Unknown')} - {job.get('Role')}")
         
         # Trigger the apply agent
-        apply_process = subprocess.run(["xvfb-run", sys.executable, "apply_agent.py", url])
+        apply_process = subprocess.run([sys.executable, "apply_agent.py", url])
         
         if apply_process.returncode == 0:
             print(f"✅ Application finished for {url}")
