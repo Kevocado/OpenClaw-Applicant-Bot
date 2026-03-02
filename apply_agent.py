@@ -1,11 +1,7 @@
-"""
-OpenClaw Applicant Bot — Browser Agent
-Uses nodriver (undetected Chrome) + Google Gemini Pro for autonomous job applications.
-"""
-
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -51,6 +47,7 @@ def load_knowledge_base() -> dict:
         "resume": "honest_resume.txt",
         "cover_letter_template": "cover_letter_templates.txt",
         "interview_qa": "interview_qa_matrix.txt",
+        "project_context": "project_context.txt",
     }
     for key, filename in files.items():
         filepath = KNOWLEDGE_BASE_DIR / filename
@@ -63,6 +60,32 @@ def load_knowledge_base() -> dict:
     return kb
 
 
+# ─── Job Description Sanitization (Prompt Injection Defense) ─────────────────
+
+def sanitize_jd(raw_text: str) -> str:
+    """Strip potentially malicious content from scraped job descriptions."""
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', raw_text)
+    # Remove common prompt injection patterns
+    injection_patterns = [
+        r'ignore\s+(all\s+)?previous\s+instructions',
+        r'output\s+your\s+(system\s+)?prompt',
+        r'disregard\s+(all\s+)?above',
+        r'you\s+are\s+now\s+a',
+        r'new\s+instructions?:',
+        r'system\s*:\s*',
+        r'\[INST\]',
+        r'\[/INST\]',
+    ]
+    for pattern in injection_patterns:
+        text = re.sub(pattern, '[REDACTED]', text, flags=re.IGNORECASE)
+    # Enforce character limit (10k chars max)
+    text = text[:10000]
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 # ─── Gemini Integration ──────────────────────────────────────────────────────
 
 def init_gemini() -> genai.Client:
@@ -71,7 +94,7 @@ def init_gemini() -> genai.Client:
         print("[ERROR] GEMINI_API_KEY not set in environment")
         sys.exit(EXIT_FAILURE)
     client = genai.Client(api_key=GEMINI_API_KEY)
-    print("[GEMINI] Client initialized (gemini-2.0-flash)")
+    print("[GEMINI] Client initialized (paid plan — model fallback chain active)")
     return client
 
 
@@ -92,6 +115,9 @@ Do NOT invent skills, experiences, or metrics not present in these files.
 
 === INTERVIEW Q&A MATRIX ===
 {knowledge_base['interview_qa']}
+
+=== PROJECT CONTEXT (Match projects to JD keywords) ===
+{knowledge_base.get('project_context', '')}
 
 === INSTRUCTIONS ===
 Analyze the following job description and return a JSON object with these exact keys:
@@ -132,8 +158,8 @@ JOB DESCRIPTION:
 {job_description}
 """
 
-    # Model fallback chain — if one hits rate limit, try the next
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    # Model fallback chain — best model first, cheaper fallbacks
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
     max_retries = 3
     base_delay = 10  # seconds
 
@@ -182,6 +208,9 @@ JOB DESCRIPTION:
                     if attempt == max_retries:
                         print(f"[GEMINI] Exhausted retries on {model_name}, trying next model...")
                         break  # try next model
+                elif "404" in error_str or "NOT_FOUND" in error_str:
+                    print(f"[GEMINI] Model {model_name} not available, trying next model...")
+                    break  # skip to next model immediately
                 else:
                     print(f"[GEMINI] ERROR: API call failed: {e}")
                     traceback.print_exc()
@@ -365,6 +394,10 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
         print("[JOB] ERROR: No job description found — skipping")
         await take_screenshot(page, "no_jd")
         return EXIT_FAILURE
+
+    # Sanitize JD to prevent prompt injection
+    jd_text = sanitize_jd(jd_text)
+    print(f"[JOB] JD sanitized ({len(jd_text)} chars)")
 
     # Step 2: Analyze with Gemini
     print("[JOB] Analyzing job with Gemini...")
