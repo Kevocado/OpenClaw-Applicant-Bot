@@ -10,7 +10,12 @@ async def main():
     profile_path = os.path.join(base_path, "user_data_dir")
     
     # Start browser and go to login
-    browser = await uc.start(user_data_dir=profile_path, headless=False, browser_args=["--no-sandbox"])
+    browser = await uc.start(
+        user_data_dir=profile_path, 
+        headless=False, 
+        no_sandbox=True,
+        browser_args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    )
     page = await browser.get("https://www.linkedin.com/login")
     await asyncio.sleep(5)
     
