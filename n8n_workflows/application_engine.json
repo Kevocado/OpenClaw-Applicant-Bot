@@ -26,7 +26,7 @@
                 "operation": "read",
                 "documentId": {
                     "__rl": true,
-                    "value": "REPLACE_WITH_YOUR_SHEET_ID",
+                    "value": "1pdy5cOsX0HWSKD7MX1YzkGSxAl0DEn69iYPSYPI9kZ0",
                     "mode": "id"
                 },
                 "sheetName": {
@@ -133,7 +133,7 @@
                 "operation": "update",
                 "documentId": {
                     "__rl": true,
-                    "value": "REPLACE_WITH_YOUR_SHEET_ID",
+                    "value": "1pdy5cOsX0HWSKD7MX1YzkGSxAl0DEn69iYPSYPI9kZ0",
                     "mode": "id"
                 },
                 "sheetName": {
