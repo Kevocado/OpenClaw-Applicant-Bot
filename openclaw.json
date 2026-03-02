@@ -54,6 +54,35 @@
         "mode": "all",
         "workspaceAccess": "ro"
       },
+      "scout_config": {
+        "target_roles": [
+          "Software Engineer Intern Summer 2026",
+          "Data Science Intern Summer 2026",
+          "Machine Learning Intern Summer 2026",
+          "Product Management Intern Summer 2026"
+        ],
+        "locations": [
+          "United States",
+          "Remote",
+          "New York, NY",
+          "Chicago, IL",
+          "San Francisco, CA"
+        ],
+        "keywords": [
+          "Summer 2026",
+          "internship",
+          "sponsorship available",
+          "OPT",
+          "CPT",
+          "visa sponsorship",
+          "international students welcome"
+        ],
+        "exclude_keywords": [
+          "US Citizen Only",
+          "No Sponsorship",
+          "Clearance Required"
+        ]
+      },
       "skills": [
         "market-research",
         "python-patterns",
