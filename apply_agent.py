@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
 USER_DATA_DIR = os.getenv("USER_DATA_DIR", "./user_data_dir")
 SCREENSHOTS_DIR = Path("./screenshots")
 PENDING_APPROVALS_FILE = Path("./pending_approvals.json")
@@ -89,22 +90,33 @@ def sanitize_jd(raw_text: str) -> str:
 # ─── Gemini Integration ──────────────────────────────────────────────────────
 
 def init_gemini() -> genai.Client:
-    """Initialize the Gemini client."""
+    """Initialize the Gemini client, routing through Keywords AI proxy if available."""
+    if KEYWORDSAI_API_KEY:
+        client = genai.Client(
+            api_key=KEYWORDSAI_API_KEY,
+            http_options={
+                "base_url": "https://api.keywordsai.co/api/google/gemini",
+            },
+        )
+        print("[GEMINI] Client initialized via Keywords AI proxy (observability enabled)")
+        return client
+
     if not GEMINI_API_KEY:
-        print("[ERROR] GEMINI_API_KEY not set in environment")
+        print("[ERROR] Neither KEYWORDSAI_API_KEY nor GEMINI_API_KEY is set")
         sys.exit(EXIT_FAILURE)
     client = genai.Client(api_key=GEMINI_API_KEY)
-    print("[GEMINI] Client initialized (paid plan — model fallback chain active)")
+    print("[GEMINI] Client initialized (direct Gemini — no observability)")
     return client
 
 
 def analyze_job(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
     """
-    Analyze a job posting using Gemini Pro.
-    Returns strict JSON: {visa_eligible, company_tier, generated_cover_letter, qa_answers}
+    Analyze a job posting using Gemini.
+    Returns strict JSON with analysis, cover letter, QA answers, and metadata.
     """
     system_prompt = f"""You are an expert career agent for Kevin Sigey. You have access to his EXACT resume, 
-cover letter templates, and interview Q&A matrix below. You must STRICTLY adhere to these documents.
+cover letter templates, interview Q&A matrix, and project context below. 
+You must STRICTLY adhere to these documents.
 Do NOT invent skills, experiences, or metrics not present in these files.
 
 === RESUME ===
@@ -122,18 +134,36 @@ Do NOT invent skills, experiences, or metrics not present in these files.
 === INSTRUCTIONS ===
 Analyze the following job description and return a JSON object with these exact keys:
 
-1. "visa_eligible" (boolean): 
+1. "Company" (string): The company name extracted from the job description.
+
+2. "Role" (string): The job title extracted from the job description.
+
+3. "ATS_System" (string): Identify the ATS platform from the URL or page structure.
+   One of: "Workday", "iCIMS", "Greenhouse", "Lever", "Taleo", "BambooHR", "LinkedIn", "Unknown".
+
+4. "visa_eligible" (boolean): 
    - false if the JD explicitly says "U.S. Citizens only", "U.S. Citizenship required", 
      "No sponsorship", "Must be authorized to work without sponsorship", or similar.
    - true if OPT/CPT is accepted, or if no visa restriction is mentioned.
 
-2. "company_tier" (string, either "High" or "Standard"):
+5. "Visa_Required" (string): "Yes" or "No" — whether the JD explicitly requires visa sponsorship.
+   Use the CPT/OPT Q&A Matrix logic from the interview matrix.
+
+6. "company_tier" (string, either "High" or "Standard"):
    - "High" if the company is a top consulting firm (McKinsey, BCG, Bain, Deloitte, EY, KPMG, PwC),
      a top finance firm (Goldman Sachs, JP Morgan, Morgan Stanley, Capital One, BlackRock, Citadel),
      or a top tech company (Google, Meta, Amazon, Apple, Microsoft).
    - "Standard" for all other companies.
 
-3. "generated_cover_letter" (string):
+7. "Target_Keywords" (array of strings): 
+   The top 5-8 technical keywords from the JD that match Kevin's skills 
+   (e.g., "Python", "SQL", "Tableau", "Machine Learning").
+
+8. "Match_Score" (integer, 1-10): 
+   How well Kevin's resume aligns with this specific role. 
+   10 = perfect match, 1 = no overlap. Consider skills, experience level, and domain fit.
+
+9. "generated_cover_letter" (string):
    - Use the MASTER TEMPLATE from the cover letter templates file.
    - Follow the TONE ADJUSTMENTS for the company type.
    - Must be between 200-300 words based on company type.
@@ -141,12 +171,14 @@ Analyze the following job description and return a JSON object with these exact 
    - MUST include the 100+ WOW Payments field sales conversations.
    - Mention F-1 STEM OPT (36 months) only if the JD mentions international students.
    - Replace all [BRACKETED] sections with company-specific information.
+   - Reference the most relevant project from the PROJECT CONTEXT based on JD keywords.
 
-4. "qa_answers" (object):
-   - Keys are common application questions found in the job posting.
-   - Values are answers drawn STRICTLY from the interview Q&A matrix.
-   - If the JD asks "Why this company?", use the framework from the matrix.
-   - If the JD asks about visa/sponsorship, use the exact visa answer from the matrix.
+10. "qa_answers" (object):
+    - Keys are common application questions found in the job posting.
+    - Values are answers drawn STRICTLY from the interview Q&A matrix.
+    - If the JD asks "Why this company?", use the framework from the matrix.
+    - For visa/sponsorship questions, use the EXACT context-dependent answers from the matrix
+      (different answer depending on the exact question phrasing).
 
 Return ONLY valid JSON. No markdown, no code fences, no explanation.
 """
@@ -177,27 +209,38 @@ JOB DESCRIPTION:
                 )
                 result = json.loads(response.text)
 
-                # Validate required keys
-                required_keys = ["visa_eligible", "company_tier", "generated_cover_letter", "qa_answers"]
-                for key in required_keys:
+                # Validate required keys with defaults
+                defaults = {
+                    "Company": "Unknown",
+                    "Role": "Unknown",
+                    "ATS_System": "Unknown",
+                    "visa_eligible": True,
+                    "Visa_Required": "No",
+                    "company_tier": "Standard",
+                    "Target_Keywords": [],
+                    "Match_Score": 5,
+                    "generated_cover_letter": "",
+                    "qa_answers": {},
+                }
+                for key, default in defaults.items():
                     if key not in result:
-                        print(f"[GEMINI] WARNING: Missing key '{key}' in response, adding default")
-                        if key == "visa_eligible":
-                            result[key] = True
-                        elif key == "company_tier":
-                            result[key] = "Standard"
-                        elif key == "generated_cover_letter":
-                            result[key] = ""
-                        elif key == "qa_answers":
-                            result[key] = {}
+                        print(f"[GEMINI] WARNING: Missing key '{key}', using default")
+                        result[key] = default
 
-                print(f"[GEMINI] Analysis complete — visa_eligible={result['visa_eligible']}, tier={result['company_tier']}")
+                print(f"[GEMINI] Analysis complete:")
+                print(f"  Company: {result['Company']} | Role: {result['Role']}")
+                print(f"  ATS: {result['ATS_System']} | Match: {result['Match_Score']}/10")
+                print(f"  Visa: {result['visa_eligible']} | Tier: {result['company_tier']}")
+                print(f"  Keywords: {', '.join(result.get('Target_Keywords', []))}")
                 return result
 
             except json.JSONDecodeError as e:
                 print(f"[GEMINI] ERROR: Failed to parse JSON response: {e}")
                 print(f"[GEMINI] Raw response: {response.text[:500]}")
-                return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+                return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
+                        "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
+                        "Target_Keywords": [], "Match_Score": 5,
+                        "generated_cover_letter": "", "qa_answers": {}}
 
             except Exception as e:
                 error_str = str(e)
@@ -214,10 +257,16 @@ JOB DESCRIPTION:
                 else:
                     print(f"[GEMINI] ERROR: API call failed: {e}")
                     traceback.print_exc()
-                    return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+                    return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
+                            "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
+                            "Target_Keywords": [], "Match_Score": 5,
+                            "generated_cover_letter": "", "qa_answers": {}}
 
     print("[GEMINI] All models exhausted — using safe defaults")
-    return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+    return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
+            "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
+            "Target_Keywords": [], "Match_Score": 5,
+            "generated_cover_letter": "", "qa_answers": {}}
 
 
 # ─── Approval Management ─────────────────────────────────────────────────────
