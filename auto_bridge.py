@@ -14,7 +14,7 @@ def run_pipeline():
     )
     
     # Extract the JSON block from the scout's output
-    match = re.search(r'SCOUT_JSON::(\[.*?\])', scout_process.stdout, re.DOTALL)
+    match = re.search(r'SCOUT_JSON::\s*(\[.*?\])', scout_process.stdout, re.DOTALL)
     
     if not match:
         print("❌ Could not find valid job data from Omni-Scout.")
