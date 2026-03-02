@@ -56,10 +56,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(target_path, "r") as f:
             current_config = json.load(f)
             
+        # Load the user's context from the knowledge base directory
+        kb_text = ""
+        try:
+            repo_dir = os.path.dirname(target_path)
+            kb_dir = os.path.join(repo_dir, "knowledge_base")
+            if os.path.exists(kb_dir):
+                for filename in os.listdir(kb_dir):
+                    if filename.endswith(".txt"):
+                        with open(os.path.join(kb_dir, filename), "r") as kb_file:
+                            kb_text += f"\n--- {filename} ---\n{kb_file.read()}\n"
+        except Exception as e:
+            print(f"Warning: Could not load knowledge base: {e}")
+
         edit_prompt = f"""
-        You are configuring the {router_response}.
+        You are an intelligent configuration manager for the {router_response}.
+        
+        The user has provided their background context here:
+        {kb_text}
+        
         Current Config: {json.dumps(current_config)}
+        
         User Request: "{user_text}"
+        
+        INSTRUCTIONS: 
+        Analyze the User Request and the User's Background Context. If the user asks you to find the "best jobs" for them, or if their target roles don't match their context (e.g. they are a Data Analyst but the config says Software Engineer), aggressively rewrite the config's `target_roles` and `keywords` arrays to perfectly match their actual background and visa requirements!
+        
         Return ONLY valid JSON with the requested updates. No markdown formatting.
         """
         
