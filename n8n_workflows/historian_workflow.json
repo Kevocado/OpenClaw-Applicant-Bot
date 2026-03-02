@@ -1,5 +1,5 @@
 {
-    "name": "Historical Inbox Scanner",
+    "name": "Historical Inbox Scanner V2",
     "nodes": [
         {
             "parameters": {},
@@ -9,14 +9,15 @@
             "position": [
                 0,
                 0
-            ]
+            ],
+            "id": "d7e04ae6-fc2b-4df2-bde3-0de6bec36c15"
         },
         {
             "parameters": {
                 "resource": "message",
                 "operation": "getAll",
                 "limit": 100,
-                "q": "in:inbox OR in:archive (subject:\"application\" OR subject:\"applied\" OR subject:\"thank you\") -label:sent",
+                "q": "in:inbox OR in:archive (subject:\"application\" OR subject:\"applied\" OR subject:\"thank you\" OR subject:\"interview\" OR subject:\"update on\") -label:sent",
                 "returnAll": true
             },
             "name": "Fetch Gmail History",
@@ -25,20 +26,34 @@
             "position": [
                 200,
                 0
-            ]
+            ],
+            "id": "0388ed08-4739-427b-b8d1-e308f15e8dfc",
+            "credentials": {
+                "gmailOAuth2": {
+                    "id": "7YSFeyOFjnIzI4yd",
+                    "name": "Gmail account"
+                }
+            }
         },
         {
             "parameters": {
                 "model": "gemini-2.0-flash",
-                "prompt": "=Analyze this email snippet and return strictly JSON.\nSubject: {{ $json.subject }}\nSnippet: {{ $json.snippet }}\n\nIs this a real job application confirmation? (Ignore credit cards, apartments, random signups).\nReturn ONLY:\n{\"is_job\": true/false, \"company\": \"Name\", \"role\": \"Title\"}"
+                "prompt": "=Analyze this email snippet and return strictly JSON.\nSubject: {{ $json.subject }}\nSnippet: {{ $json.snippet }}\nSender: {{ $json.from }}\n\nDetermine if this is a job application email (confirmation, interview, or rejection). Ignore credit cards, apartments, etc.\n\nReturn exactly this JSON:\n{\n  \"is_job\": true/false,\n  \"company\": \"Company Name\",\n  \"role\": \"Job Title\",\n  \"ats_system\": \"Identify from sender email (e.g., Workday, Greenhouse, iCIMS, Lever, Unknown)\",\n  \"interview_status\": \"Applied, Interviewing, or Rejected\",\n  \"interview_stage\": \"E.g., Phone Screen, Technical, Final, or N/A\"\n}"
             },
-            "name": "Gemini AI Filter",
+            "name": "Gemini AI Parser",
             "type": "@n8n/n8n-nodes-langchain.agent",
             "typeVersion": 1,
             "position": [
                 400,
                 0
-            ]
+            ],
+            "id": "8c39e27f-c2f2-49a4-bb95-3f8b8d1ebf1c",
+            "credentials": {
+                "googlePalmApi": {
+                    "id": "dBBb57nYslVNSTi8",
+                    "name": "Google Gemini(PaLM) Api account"
+                }
+            }
         },
         {
             "parameters": {
@@ -51,13 +66,14 @@
                     ]
                 }
             },
-            "name": "Is Job Application?",
+            "name": "Is Job Email?",
             "type": "n8n-nodes-base.if",
             "typeVersion": 1,
             "position": [
                 600,
                 0
-            ]
+            ],
+            "id": "f8f711f6-f904-41fd-a166-a7b1f74f6fe0"
         },
         {
             "parameters": {
@@ -77,18 +93,31 @@
                     "value": {
                         "Company": "={{ $json.company }}",
                         "Role": "={{ $json.role }}",
-                        "Date_Applied": "={{ $node[\"Fetch Gmail History\"].json.date }}"
+                        "Date_Applied": "={{ $node[\"Fetch Gmail History\"].json.date }}",
+                        "Interview_Status": "={{ $json.interview_status }}",
+                        "Interview Stage": "={{ $json.interview_stage }}",
+                        "ATS_System": "={{ $json.ats_system }}",
+                        "Visa_Required": "N/A - Historical",
+                        "Target_Keywords": "N/A - Historical",
+                        "Match_Score": "N/A - Historical"
                     }
                 },
                 "options": {}
             },
-            "name": "Append to History Tab",
+            "name": "Append Complete Data",
             "type": "n8n-nodes-base.googleSheets",
             "typeVersion": 4,
             "position": [
                 800,
                 -100
-            ]
+            ],
+            "id": "5e298c9a-b1f8-40d7-a3ee-9d33da7152c9",
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "id": "hcihMwdHKJ4QFVOL",
+                    "name": "Google Sheets account"
+                }
+            }
         }
     ],
     "connections": {
@@ -107,29 +136,29 @@
             "main": [
                 [
                     {
-                        "node": "Gemini AI Filter",
+                        "node": "Gemini AI Parser",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "Gemini AI Filter": {
+        "Gemini AI Parser": {
             "main": [
                 [
                     {
-                        "node": "Is Job Application?",
+                        "node": "Is Job Email?",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "Is Job Application?": {
+        "Is Job Email?": {
             "main": [
                 [
                     {
-                        "node": "Append to History Tab",
+                        "node": "Append Complete Data",
                         "type": "main",
                         "index": 0
                     }
