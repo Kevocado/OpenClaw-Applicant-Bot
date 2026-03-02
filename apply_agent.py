@@ -132,42 +132,63 @@ JOB DESCRIPTION:
 {job_description}
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[system_prompt, user_prompt],
-            config=genai.types.GenerateContentConfig(
-                temperature=0.3,
-                response_mime_type="application/json",
-            ),
-        )
-        result = json.loads(response.text)
+    # Model fallback chain — if one hits rate limit, try the next
+    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
+    max_retries = 3
+    base_delay = 10  # seconds
 
-        # Validate required keys
-        required_keys = ["visa_eligible", "company_tier", "generated_cover_letter", "qa_answers"]
-        for key in required_keys:
-            if key not in result:
-                print(f"[GEMINI] WARNING: Missing key '{key}' in response, adding default")
-                if key == "visa_eligible":
-                    result[key] = True
-                elif key == "company_tier":
-                    result[key] = "Standard"
-                elif key == "generated_cover_letter":
-                    result[key] = ""
-                elif key == "qa_answers":
-                    result[key] = {}
+    for model_name in models_to_try:
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"[GEMINI] Trying {model_name} (attempt {attempt}/{max_retries})...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[system_prompt, user_prompt],
+                    config=genai.types.GenerateContentConfig(
+                        temperature=0.3,
+                        response_mime_type="application/json",
+                    ),
+                )
+                result = json.loads(response.text)
 
-        print(f"[GEMINI] Analysis complete — visa_eligible={result['visa_eligible']}, tier={result['company_tier']}")
-        return result
+                # Validate required keys
+                required_keys = ["visa_eligible", "company_tier", "generated_cover_letter", "qa_answers"]
+                for key in required_keys:
+                    if key not in result:
+                        print(f"[GEMINI] WARNING: Missing key '{key}' in response, adding default")
+                        if key == "visa_eligible":
+                            result[key] = True
+                        elif key == "company_tier":
+                            result[key] = "Standard"
+                        elif key == "generated_cover_letter":
+                            result[key] = ""
+                        elif key == "qa_answers":
+                            result[key] = {}
 
-    except json.JSONDecodeError as e:
-        print(f"[GEMINI] ERROR: Failed to parse JSON response: {e}")
-        print(f"[GEMINI] Raw response: {response.text[:500]}")
-        return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
-    except Exception as e:
-        print(f"[GEMINI] ERROR: API call failed: {e}")
-        traceback.print_exc()
-        return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+                print(f"[GEMINI] Analysis complete — visa_eligible={result['visa_eligible']}, tier={result['company_tier']}")
+                return result
+
+            except json.JSONDecodeError as e:
+                print(f"[GEMINI] ERROR: Failed to parse JSON response: {e}")
+                print(f"[GEMINI] Raw response: {response.text[:500]}")
+                return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    delay = base_delay * (2 ** (attempt - 1))  # 10s, 20s, 40s
+                    print(f"[GEMINI] Rate limited on {model_name} — waiting {delay}s before retry...")
+                    time.sleep(delay)
+                    if attempt == max_retries:
+                        print(f"[GEMINI] Exhausted retries on {model_name}, trying next model...")
+                        break  # try next model
+                else:
+                    print(f"[GEMINI] ERROR: API call failed: {e}")
+                    traceback.print_exc()
+                    return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
+
+    print("[GEMINI] All models exhausted — using safe defaults")
+    return {"visa_eligible": True, "company_tier": "Standard", "generated_cover_letter": "", "qa_answers": {}}
 
 
 # ─── Approval Management ─────────────────────────────────────────────────────
