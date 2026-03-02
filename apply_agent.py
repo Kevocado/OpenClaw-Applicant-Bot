@@ -199,40 +199,62 @@ def save_pending_approval(job_url: str, analysis: dict):
 
 async def scrape_job_description(page) -> str:
     """Extract the job description text from the current page."""
-    # Try common JD selectors across LinkedIn, Handshake, and generic job boards
-    selectors = [
+    # Debug: log current page state
+    try:
+        page_title = await page.evaluate("document.title")
+        page_url = await page.evaluate("window.location.href")
+        print(f"[SCRAPE] Page title: {page_title}")
+        print(f"[SCRAPE] Page URL: {page_url}")
+        
+        # Detect login redirect
+        if any(kw in str(page_url).lower() for kw in ["login", "signin", "auth", "checkpoint"]):
+            print("[SCRAPE] ⚠️  LOGIN PAGE DETECTED — cookies may be expired or incompatible")
+            print("[SCRAPE] You need to run login_helper.py on the VPS to create fresh cookies")
+            return ""
+    except Exception as e:
+        print(f"[SCRAPE] Debug error: {e}")
+
+    # Try to extract JD text using JavaScript (most reliable with nodriver)
+    js_selectors = [
         ".jobs-description__content",           # LinkedIn
         ".jobs-box__html-content",              # LinkedIn alt
+        ".jobs-description-content__text",      # LinkedIn v2
+        ".job-details-jobs-unified-top-card__job-insight",  # LinkedIn unified
+        "#job-details",                         # LinkedIn / Workday
         "[class*='job-description']",           # Generic
         "[class*='jobDescription']",            # Generic camelCase
+        "[class*='description__text']",         # LinkedIn variant
         "[data-testid='job-description']",      # Handshake / modern
         ".posting-requirements",                # Lever
         ".content-wrapper",                     # Greenhouse
-        "#job-details",                         # Workday
+        ".job-posting-section",                 # Generic
         "article",                              # Semantic fallback
         "main",                                 # Broad fallback
     ]
 
-    for selector in selectors:
+    for selector in js_selectors:
         try:
-            elem = await page.query_selector(selector)
-            if elem:
-                text = await elem.text_all
-                if text and len(text.strip()) > 100:
-                    print(f"[SCRAPE] Found JD via selector: {selector} ({len(text)} chars)")
-                    return text.strip()
+            text = await page.evaluate(
+                f"""(() => {{
+                    const el = document.querySelector('{selector}');
+                    return el ? el.innerText : null;
+                }})()"""
+            )
+            if text and len(text.strip()) > 50:
+                print(f"[SCRAPE] Found JD via selector: {selector} ({len(text)} chars)")
+                return text.strip()
         except Exception:
             continue
 
-    # Final fallback: grab all body text
+    # Final fallback: full body text
     try:
-        body = await page.query_selector("body")
-        if body:
-            text = await body.text_all
-            print(f"[SCRAPE] Fallback to body text ({len(text)} chars)")
-            return text.strip()
-    except Exception:
-        pass
+        body_text = await page.evaluate("document.body.innerText")
+        if body_text and len(body_text.strip()) > 100:
+            print(f"[SCRAPE] Fallback to body text ({len(body_text)} chars)")
+            # Truncate to avoid sending enormous text to Gemini
+            return body_text.strip()[:10000]
+    except Exception as e:
+        print(f"[SCRAPE] Body text fallback error: {e}")
 
     print("[SCRAPE] WARNING: Could not extract job description")
     return ""
@@ -312,8 +334,9 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
     print(f"[JOB] Navigating to: {job_url}")
     print(f"{'='*60}")
 
-    # Wait for page to load
-    await asyncio.sleep(3)
+    # Wait for page to fully load (LinkedIn is JS-heavy)
+    print("[JOB] Waiting for page to load...")
+    await asyncio.sleep(8)
 
     # Step 1: Scrape Job Description
     jd_text = await scrape_job_description(page)
