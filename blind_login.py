@@ -19,28 +19,29 @@ async def main():
     page = await browser.get("https://www.linkedin.com/login")
     await asyncio.sleep(5)
     
-    # STEP 1: Enter Credentials
-    email = os.getenv("N8N_BASIC_AUTH_USER")
-    password = os.getenv("Linkedin_password")
+    # 1. Grab the CORRECT variables from your .env
+    li_user = os.getenv("N8N_BASIC_AUTH_USER")
+    li_pass = os.getenv("Linkedin_password")
     
-    if not email or not password:
+    if not li_user or not li_pass:
         print("❌ ERROR: Could not find N8N_BASIC_AUTH_USER or Linkedin_password in .env")
         return
 
     email_input = await page.select('input[id="username"]')
-    await email_input.send_keys(email)
+    await email_input.send_keys(li_user)
     
     password_input = await page.select('input[id="password"]')
-    await password_input.send_keys(password)
+    await password_input.send_keys(li_pass)
     
     # Click Sign In
     button = await page.select('button[type="submit"]')
     await button.click()
     
-    # STEP 2: Wait for potential 2FA/Security Code
-    print("Sent login. Waiting 30 seconds for 2FA screen...")
-    await asyncio.sleep(30)
-    await page.save_screenshot("login_step_2.png")
+    print("Sign-in clicked. Waiting 20 seconds for redirect/2FA...")
+    await asyncio.sleep(20)
+    
+    await page.save_screenshot("login_attempt_result.png")
+    print("Screenshot saved as 'login_attempt_result.png'")
     
     browser.stop()
 
