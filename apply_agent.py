@@ -9,14 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import nodriver as uc
-from openai import OpenAI
+from google import genai
 from dotenv import load_dotenv
-
-# Keep google.genai as fallback if no Respan key
-try:
-    from google import genai
-except ImportError:
-    genai = None
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -95,28 +89,27 @@ def sanitize_jd(raw_text: str) -> str:
 
 # ─── Gemini Integration ──────────────────────────────────────────────────────
 
-def init_gemini():
+def init_gemini() -> genai.Client:
     """Initialize the LLM client, routing through Respan proxy if available."""
     if KEYWORDSAI_API_KEY:
-        client = OpenAI(
+        client = genai.Client(
             api_key=KEYWORDSAI_API_KEY,
-            base_url="https://api.respan.ai/api",
+            http_options={
+                "base_url": "https://api.respan.ai/api/google/gemini",
+            },
         )
         print("[LLM] Client initialized via Respan proxy (observability enabled)")
-        return client, "respan"
+        return client
 
     if not GEMINI_API_KEY:
         print("[ERROR] Neither KEYWORDSAI_API_KEY nor GEMINI_API_KEY is set")
         sys.exit(EXIT_FAILURE)
-    if genai is None:
-        print("[ERROR] google-genai package not installed and KEYWORDSAI_API_KEY not set")
-        sys.exit(EXIT_FAILURE)
     client = genai.Client(api_key=GEMINI_API_KEY)
     print("[LLM] Client initialized (direct Gemini — no observability)")
-    return client, "google"
+    return client
 
 
-def analyze_job(client, backend: str, job_url: str, job_description: str, knowledge_base: dict) -> dict:
+def analyze_job(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
     """
     Analyze a job posting using Gemini.
     Returns strict JSON with analysis, cover letter, QA answers, and metadata.
@@ -207,36 +200,15 @@ JOB DESCRIPTION:
             try:
                 print(f"[LLM] Trying {model_name} (attempt {attempt}/{max_retries})...")
 
-                if backend == "respan":
-                    # OpenAI-compatible chat completions via Respan proxy
-                    response = client.chat.completions.create(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[system_prompt, user_prompt],
+                    config=genai.types.GenerateContentConfig(
                         temperature=0.3,
-                        response_format={"type": "json_object"},
-                        extra_body={
-                            "metadata": {
-                                "environment": "production",
-                                "application": "OpenClaw-Applicant-Bot",
-                            }
-                        },
-                    )
-                    raw_text = response.choices[0].message.content
-                else:
-                    # Direct google.genai SDK fallback
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[system_prompt, user_prompt],
-                        config=genai.types.GenerateContentConfig(
-                            temperature=0.3,
-                            response_mime_type="application/json",
-                        ),
-                    )
-                    raw_text = response.text
-
+                        response_mime_type="application/json",
+                    ),
+                )
+                raw_text = response.text
                 result = json.loads(raw_text)
 
                 # Validate required keys with defaults
@@ -461,7 +433,7 @@ async def take_screenshot(page, label: str):
 
 # ─── Main Application Loop ───────────────────────────────────────────────────
 
-async def apply_to_job(browser, job_url: str, client, backend: str, kb: dict) -> int:
+async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) -> int:
     """
     Main application flow for a single job.
     Returns exit code: 0=success, 1=failure, 2=high-tier paused.
@@ -488,7 +460,7 @@ async def apply_to_job(browser, job_url: str, client, backend: str, kb: dict) ->
 
     # Step 2: Analyze with Gemini
     print("[JOB] Analyzing job with Gemini...")
-    analysis = analyze_job(client, backend, job_url, jd_text, kb)
+    analysis = analyze_job(client, job_url, jd_text, kb)
 
     # Step 3: Visa Gatekeeper
     if not analysis["visa_eligible"]:
@@ -554,7 +526,7 @@ async def main():
     kb = load_knowledge_base()
 
     # Initialize LLM (Respan proxy or direct Gemini)
-    client, backend = init_gemini()
+    client = init_gemini()
 
     # Detect if we have a display (local) or not (VPS)
     has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
@@ -573,7 +545,7 @@ async def main():
     )
 
     try:
-        exit_code = await apply_to_job(browser, job_url, client, backend, kb)
+        exit_code = await apply_to_job(browser, job_url, client, kb)
     except TimeoutError:
         print("[AGENT] ERROR: Page load timeout")
         exit_code = EXIT_FAILURE
