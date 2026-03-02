@@ -42,8 +42,8 @@ LOGIN_SITES = [
     },
     {
         "name": "MigrateMate",
-        "url": "https://www.migratemate.com/login",
-        "check_url": "migratemate.com",
+        "url": "https://migratemate.co/jobs",
+        "check_url": "migratemate.co",
         "instructions": "Log in with your MigrateMate account.",
     },
     {
