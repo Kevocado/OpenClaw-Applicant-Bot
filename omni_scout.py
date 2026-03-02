@@ -3,8 +3,20 @@ import json
 import re
 import nodriver as uc
 
+import urllib.parse
+
 PROXY_SERVER = "http://gw.dataimpulse.com:823"
-TARGET_ROLES = ["Data Analyst", "Business Analyst"]
+TARGET_ROLES = ["Data Analyst", "Business Analyst", "Data", "Analytics", "SQL", "Python", "Intern"]
+
+search_queries = [
+    "Data Analyst Intern Summer 2026",
+    "Business Analytics Intern Summer 2026",
+    "Immediate hire Data Intern",
+    "Remote Analytics Intern 2026",
+    "Startup Data Intern Summer",
+    "SQL Python Intern",
+    "Urgent Data Analyst Internship"
+]
 
 async def extract_jobs_from_dom(page, platform, priority):
     """
@@ -78,26 +90,27 @@ async def main():
     all_extracted_jobs = []
 
     try:
-        # Target 1: MigrateMate 
-        print("[SCOUT] Target 1: Scouring MigrateMate...")
-        page_mm = await browser.get('https://migratemate.com/jobs?query=Data+Analyst+Summer+2026&visa=cpt')
-        mm_jobs = await extract_jobs_from_dom(page_mm, "MigrateMate", 1)
-        all_extracted_jobs.extend(mm_jobs)
-        print(f"[SCOUT] Found {len(mm_jobs)} jobs on MigrateMate.")
+        for query in search_queries:
+            print(f"[SCOUT] Target: Scouring for '{query}'...")
+            query_encoded = urllib.parse.quote(query)
 
-        # Target 2: Handshake
-        print("[SCOUT] Target 2: Scouring Handshake...")
-        page_hs = await browser.get('https://app.joinhandshake.com/stu/jobs?query=Data+Analyst&employer_preferences_sponsor_internship=true')
-        hs_jobs = await extract_jobs_from_dom(page_hs, "Handshake", 2)
-        all_extracted_jobs.extend(hs_jobs)
-        print(f"[SCOUT] Found {len(hs_jobs)} jobs on Handshake.")
+            # Target 1: MigrateMate 
+            page_mm = await browser.get(f'https://migratemate.com/jobs?query={query_encoded}&visa=cpt')
+            mm_jobs = await extract_jobs_from_dom(page_mm, "MigrateMate", 1)
+            all_extracted_jobs.extend(mm_jobs)
+            print(f"        -> Found {len(mm_jobs)} on MM")
 
-        # Target 3: LinkedIn
-        print("[SCOUT] Target 3: Scouring LinkedIn...")
-        page_li = await browser.get('https://www.linkedin.com/jobs/search/?keywords=Data%20Analyst%20Summer%202026')
-        li_jobs = await extract_jobs_from_dom(page_li, "LinkedIn", 3)
-        all_extracted_jobs.extend(li_jobs)
-        print(f"[SCOUT] Found {len(li_jobs)} jobs on LinkedIn.")
+            # Target 2: Handshake
+            page_hs = await browser.get(f'https://app.joinhandshake.com/stu/jobs?query={query_encoded}&employer_preferences_sponsor_internship=true')
+            hs_jobs = await extract_jobs_from_dom(page_hs, "Handshake", 2)
+            all_extracted_jobs.extend(hs_jobs)
+            print(f"        -> Found {len(hs_jobs)} on HS")
+
+            # Target 3: LinkedIn
+            page_li = await browser.get(f'https://www.linkedin.com/jobs/search/?keywords={query_encoded}')
+            li_jobs = await extract_jobs_from_dom(page_li, "LinkedIn", 3)
+            all_extracted_jobs.extend(li_jobs)
+            print(f"        -> Found {len(li_jobs)} on LI")
 
     except Exception as e:
         print(f"[SCOUT] Critical browser error: {e}")
