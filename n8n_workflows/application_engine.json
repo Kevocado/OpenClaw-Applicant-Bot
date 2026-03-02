@@ -86,6 +86,19 @@
         },
         {
             "parameters": {
+                "jsCode": "// Parse the ANALYSIS_JSON line from stdout\nconst stdout = $input.first().json.stdout || '';\nconst lines = stdout.split('\\n');\nlet analysis = {};\n\nfor (const line of lines) {\n  if (line.startsWith('ANALYSIS_JSON::')) {\n    try {\n      analysis = JSON.parse(line.replace('ANALYSIS_JSON::', ''));\n    } catch (e) {\n      analysis = {};\n    }\n  }\n}\n\nreturn [{\n  json: {\n    exitCode: $input.first().json.exitCode,\n    Company: analysis.Company || 'Unknown',\n    Role: analysis.Role || 'Unknown',\n    ATS_System: analysis.ATS_System || 'Unknown',\n    visa_eligible: analysis.visa_eligible !== false,\n    Visa_Required: analysis.Visa_Required || 'No',\n    company_tier: analysis.company_tier || 'Standard',\n    Target_Keywords: (analysis.Target_Keywords || []).join(', '),\n    Match_Score: analysis.Match_Score || 0,\n    Job_URL: $input.first().json.Job_URL || ''\n  }\n}];"
+            },
+            "id": "parse-analysis",
+            "name": "Parse Analysis JSON",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1200,
+                200
+            ]
+        },
+        {
+            "parameters": {
                 "conditions": {
                     "number": [
                         {
@@ -101,14 +114,14 @@
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
             "position": [
-                1250,
+                1450,
                 200
             ]
         },
         {
             "parameters": {
-                "chatId": "REPLACE_WITH_YOUR_TELEGRAM_CHAT_ID",
-                "text": "=🔔 **HIGH-TIER APPLICATION PAUSED**\n\nA high-tier company application needs your approval.\n\nCheck `pending_approvals.json` on the VPS for the generated cover letter and QA answers.\n\nReply /approve to submit, or /skip to pass.",
+                "chatId": "5876085554",
+                "text": "=🔔 **HIGH-TIER APPLICATION PAUSED**\n\n🏢 **{{ $json.Company }}** — {{ $json.Role }}\n📊 Match Score: {{ $json.Match_Score }}/10\n🔑 Keywords: {{ $json.Target_Keywords }}\n🌐 ATS: {{ $json.ATS_System }}\n🔗 {{ $json.Job_URL }}\n\nReply /approve to submit, or /skip to pass.",
                 "additionalFields": {
                     "parse_mode": "Markdown"
                 }
@@ -118,7 +131,7 @@
             "type": "n8n-nodes-base.telegram",
             "typeVersion": 1.2,
             "position": [
-                1500,
+                1700,
                 100
             ],
             "credentials": {
@@ -144,18 +157,24 @@
                 "columns": {
                     "mappingMode": "defineBelow",
                     "value": {
-                        "Status": "={{ $json.exitCode === 0 ? 'Applied' : $json.exitCode === 2 ? 'Pending Approval' : 'Failed' }}"
+                        "Status": "={{ $json.exitCode === 0 ? 'Applied' : $json.exitCode === 2 ? 'Pending Approval' : 'Failed' }}",
+                        "Company": "={{ $json.Company }}",
+                        "Role": "={{ $json.Role }}",
+                        "ATS_System": "={{ $json.ATS_System }}",
+                        "Visa_Required": "={{ $json.Visa_Required }}",
+                        "Target_Keywords": "={{ $json.Target_Keywords }}",
+                        "Match_Score": "={{ $json.Match_Score }}"
                     }
                 },
                 "options": {}
             },
             "id": "sheets-update",
-            "name": "Update Status",
+            "name": "Update Queue Row",
             "type": "n8n-nodes-base.googleSheets",
             "typeVersion": 4.5,
             "position": [
-                1500,
-                300
+                1700,
+                350
             ],
             "credentials": {
                 "googleSheetsOAuth2Api": {
@@ -174,8 +193,8 @@
             "type": "n8n-nodes-base.wait",
             "typeVersion": 1.1,
             "position": [
-                1250,
-                400
+                1950,
+                200
             ]
         }
     ],
@@ -213,7 +232,7 @@
                 ],
                 [
                     {
-                        "node": "Update Status",
+                        "node": "Update Queue Row",
                         "type": "main",
                         "index": 0
                     }
@@ -221,6 +240,17 @@
             ]
         },
         "Run Apply Agent": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Analysis JSON",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Analysis JSON": {
             "main": [
                 [
                     {
@@ -242,7 +272,7 @@
                 ],
                 [
                     {
-                        "node": "Cooldown (15s)",
+                        "node": "Update Queue Row",
                         "type": "main",
                         "index": 0
                     }
@@ -250,6 +280,17 @@
             ]
         },
         "Telegram Alert": {
+            "main": [
+                [
+                    {
+                        "node": "Cooldown (15s)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Queue Row": {
             "main": [
                 [
                     {
