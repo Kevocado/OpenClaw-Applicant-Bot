@@ -9,8 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import nodriver as uc
-from google import genai
+from openai import OpenAI
 from dotenv import load_dotenv
+
+# Keep google.genai as fallback if no Respan key
+try:
+    from google import genai
+except ImportError:
+    genai = None
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -89,27 +95,28 @@ def sanitize_jd(raw_text: str) -> str:
 
 # ─── Gemini Integration ──────────────────────────────────────────────────────
 
-def init_gemini() -> genai.Client:
-    """Initialize the Gemini client, routing through Keywords AI proxy if available."""
+def init_gemini():
+    """Initialize the LLM client, routing through Respan proxy if available."""
     if KEYWORDSAI_API_KEY:
-        client = genai.Client(
+        client = OpenAI(
             api_key=KEYWORDSAI_API_KEY,
-            http_options={
-                "base_url": "https://api.keywordsai.co/api/google/gemini",
-            },
+            base_url="https://api.respan.ai/api",
         )
-        print("[GEMINI] Client initialized via Keywords AI proxy (observability enabled)")
-        return client
+        print("[LLM] Client initialized via Respan proxy (observability enabled)")
+        return client, "respan"
 
     if not GEMINI_API_KEY:
         print("[ERROR] Neither KEYWORDSAI_API_KEY nor GEMINI_API_KEY is set")
         sys.exit(EXIT_FAILURE)
+    if genai is None:
+        print("[ERROR] google-genai package not installed and KEYWORDSAI_API_KEY not set")
+        sys.exit(EXIT_FAILURE)
     client = genai.Client(api_key=GEMINI_API_KEY)
-    print("[GEMINI] Client initialized (direct Gemini — no observability)")
-    return client
+    print("[LLM] Client initialized (direct Gemini — no observability)")
+    return client, "google"
 
 
-def analyze_job(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
+def analyze_job(client, backend: str, job_url: str, job_description: str, knowledge_base: dict) -> dict:
     """
     Analyze a job posting using Gemini.
     Returns strict JSON with analysis, cover letter, QA answers, and metadata.
@@ -198,16 +205,39 @@ JOB DESCRIPTION:
     for model_name in models_to_try:
         for attempt in range(1, max_retries + 1):
             try:
-                print(f"[GEMINI] Trying {model_name} (attempt {attempt}/{max_retries})...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[system_prompt, user_prompt],
-                    config=genai.types.GenerateContentConfig(
+                print(f"[LLM] Trying {model_name} (attempt {attempt}/{max_retries})...")
+
+                if backend == "respan":
+                    # OpenAI-compatible chat completions via Respan proxy
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
                         temperature=0.3,
-                        response_mime_type="application/json",
-                    ),
-                )
-                result = json.loads(response.text)
+                        response_format={"type": "json_object"},
+                        extra_body={
+                            "metadata": {
+                                "environment": "production",
+                                "application": "OpenClaw-Applicant-Bot",
+                            }
+                        },
+                    )
+                    raw_text = response.choices[0].message.content
+                else:
+                    # Direct google.genai SDK fallback
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[system_prompt, user_prompt],
+                        config=genai.types.GenerateContentConfig(
+                            temperature=0.3,
+                            response_mime_type="application/json",
+                        ),
+                    )
+                    raw_text = response.text
+
+                result = json.loads(raw_text)
 
                 # Validate required keys with defaults
                 defaults = {
@@ -224,19 +254,27 @@ JOB DESCRIPTION:
                 }
                 for key, default in defaults.items():
                     if key not in result:
-                        print(f"[GEMINI] WARNING: Missing key '{key}', using default")
+                        print(f"[LLM] WARNING: Missing key '{key}', using default")
                         result[key] = default
 
-                print(f"[GEMINI] Analysis complete:")
+                print(f"[LLM] Analysis complete:")
                 print(f"  Company: {result['Company']} | Role: {result['Role']}")
                 print(f"  ATS: {result['ATS_System']} | Match: {result['Match_Score']}/10")
                 print(f"  Visa: {result['visa_eligible']} | Tier: {result['company_tier']}")
                 print(f"  Keywords: {', '.join(result.get('Target_Keywords', []))}")
+
+                # Write analysis to file for n8n to read
+                analysis_file = Path("./last_analysis.json")
+                analysis_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
+                print(f"[LLM] Analysis saved to {analysis_file}")
+
+                # Output structured JSON line for n8n stdout parsing
+                print(f"ANALYSIS_JSON::{json.dumps(result)}")
                 return result
 
             except json.JSONDecodeError as e:
-                print(f"[GEMINI] ERROR: Failed to parse JSON response: {e}")
-                print(f"[GEMINI] Raw response: {response.text[:500]}")
+                print(f"[LLM] ERROR: Failed to parse JSON response: {e}")
+                print(f"[LLM] Raw response: {raw_text[:500]}")
                 return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
                         "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
                         "Target_Keywords": [], "Match_Score": 5,
@@ -246,23 +284,23 @@ JOB DESCRIPTION:
                 error_str = str(e)
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                     delay = base_delay * (2 ** (attempt - 1))  # 10s, 20s, 40s
-                    print(f"[GEMINI] Rate limited on {model_name} — waiting {delay}s before retry...")
+                    print(f"[LLM] Rate limited on {model_name} — waiting {delay}s before retry...")
                     time.sleep(delay)
                     if attempt == max_retries:
-                        print(f"[GEMINI] Exhausted retries on {model_name}, trying next model...")
+                        print(f"[LLM] Exhausted retries on {model_name}, trying next model...")
                         break  # try next model
                 elif "404" in error_str or "NOT_FOUND" in error_str:
-                    print(f"[GEMINI] Model {model_name} not available, trying next model...")
+                    print(f"[LLM] Model {model_name} not available, trying next model...")
                     break  # skip to next model immediately
                 else:
-                    print(f"[GEMINI] ERROR: API call failed: {e}")
+                    print(f"[LLM] ERROR: API call failed: {e}")
                     traceback.print_exc()
                     return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
                             "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
                             "Target_Keywords": [], "Match_Score": 5,
                             "generated_cover_letter": "", "qa_answers": {}}
 
-    print("[GEMINI] All models exhausted — using safe defaults")
+    print("[LLM] All models exhausted — using safe defaults")
     return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
             "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
             "Target_Keywords": [], "Match_Score": 5,
@@ -423,7 +461,7 @@ async def take_screenshot(page, label: str):
 
 # ─── Main Application Loop ───────────────────────────────────────────────────
 
-async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) -> int:
+async def apply_to_job(browser, job_url: str, client, backend: str, kb: dict) -> int:
     """
     Main application flow for a single job.
     Returns exit code: 0=success, 1=failure, 2=high-tier paused.
@@ -450,7 +488,7 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
 
     # Step 2: Analyze with Gemini
     print("[JOB] Analyzing job with Gemini...")
-    analysis = analyze_job(client, job_url, jd_text, kb)
+    analysis = analyze_job(client, backend, job_url, jd_text, kb)
 
     # Step 3: Visa Gatekeeper
     if not analysis["visa_eligible"]:
@@ -515,8 +553,8 @@ async def main():
     # Load knowledge base
     kb = load_knowledge_base()
 
-    # Initialize Gemini
-    client = init_gemini()
+    # Initialize LLM (Respan proxy or direct Gemini)
+    client, backend = init_gemini()
 
     # Detect if we have a display (local) or not (VPS)
     has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
@@ -535,7 +573,7 @@ async def main():
     )
 
     try:
-        exit_code = await apply_to_job(browser, job_url, client, kb)
+        exit_code = await apply_to_job(browser, job_url, client, backend, kb)
     except TimeoutError:
         print("[AGENT] ERROR: Page load timeout")
         exit_code = EXIT_FAILURE
