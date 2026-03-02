@@ -43,7 +43,8 @@ async def extract_jobs_from_dom(page, platform, priority):
                         "Company": "Extracted from DOM", 
                         "Role": text,
                         "ATS_System": platform,
-                        "Priority": priority
+                        "Priority": priority,
+                        "Deadline": ""
                     })
             except Exception:
                 # If a single element fails parsing, silently skip it

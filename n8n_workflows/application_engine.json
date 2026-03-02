@@ -176,7 +176,8 @@
                         "ATS_System": "={{ $json.ATS_System }}",
                         "Visa_Required": "={{ $json.Visa_Required }}",
                         "Target_Keywords": "={{ $json.Target_Keywords }}",
-                        "Match_Score": "={{ $json.Match_Score }}"
+                        "Match_Score": "={{ $json.Match_Score }}",
+                        "Date_Applied": "={{ $json.exitCode === 0 ? $now : '' }}"
                     }
                 },
                 "options": {}
