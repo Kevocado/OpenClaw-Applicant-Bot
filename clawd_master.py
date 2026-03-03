@@ -129,7 +129,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             repo_dir = os.path.dirname(target_path)
             subprocess.run(["git", "add", target_path], cwd=repo_dir, check=True)
             subprocess.run(["git", "commit", "-m", f"bot: auto-update {router_response} config via Telegram"], cwd=repo_dir, check=True)
-            subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, check=True)
+            subprocess.run(["git", "push", "origin", "main"], cwd=repo_dir, check=True, stdin=subprocess.DEVNULL)
             git_status = " 🐙 (Synced to GitHub)"
         except Exception as git_err:
             git_status = f" ⚠️ (Git Sync Failed: {git_err})"
