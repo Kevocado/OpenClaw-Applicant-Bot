@@ -464,17 +464,26 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
         await asyncio.sleep(random.uniform(5.0, 8.5))
         
         # Check against proxy connection drops
-        current_url = getattr(page.target, 'url', '')
-        if 'chrome-error://' in current_url:
+        try:
+            current_url = await page.evaluate("window.location.href")
+        except Exception:
+            current_url = getattr(page.target, 'url', '')
+            
+        if 'chrome-error://' in str(current_url):
             print(f"⚠️ [PROXY] Network error detected (Attempt {attempt}/{max_retries}). Retrying with fresh proxy IP...")
             await asyncio.sleep(3)
             continue
         else:
             break
             
-    if page and 'chrome-error://' in getattr(page.target, 'url', ''):
-        print("[JOB] ERROR: Proxy repeatedly failed to connect to the target URL.")
-        return EXIT_FAILURE
+    if page:
+        try:
+            final_url = await page.evaluate("window.location.href")
+        except Exception:
+            final_url = getattr(page.target, 'url', '')
+        if 'chrome-error://' in str(final_url):
+            print("[JOB] ERROR: Proxy repeatedly failed to connect to the target URL.")
+            return EXIT_FAILURE
 
     # Wait for page to fully load (LinkedIn is JS-heavy)
     print("[JOB] Waiting for page to load...")
