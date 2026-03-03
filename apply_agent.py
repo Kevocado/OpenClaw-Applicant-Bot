@@ -581,15 +581,8 @@ async def main():
 
     browser = await uc.start(
         headless=headless_mode,
-        no_sandbox=True,
         user_data_dir=USER_DATA_DIR,
-        browser_args=[
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer'
-        ]
+        no_sandbox=True
     )
 
     # --- NEW COOKIE INJECTION BLOCK ---
