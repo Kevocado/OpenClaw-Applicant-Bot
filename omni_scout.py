@@ -104,6 +104,16 @@ async def extract_jobs_from_dom(page, platform, priority):
             unique_jobs.append(job)
             seen_urls.add(job["Job_URL"])
             
+    if len(unique_jobs) == 0:
+        import time
+        ts = int(time.time())
+        try:
+            os.makedirs("./screenshots", exist_ok=True)
+            await page.save_screenshot(f"./screenshots/debug_scout_{platform}_{ts}.png")
+            print(f"        -> [DEBUG] Saved blank scrape screenshot to screenshots/debug_scout_{platform}_{ts}.png")
+        except Exception:
+            pass
+            
     return unique_jobs[:10]
 
 async def main():
