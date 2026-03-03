@@ -50,10 +50,10 @@ def load_knowledge_base() -> dict:
     """Load all knowledge base files into memory."""
     kb = {}
     files = {
-        "resume": "honest_resume.txt",
-        "cover_letter_template": "cover_letter_templates.txt",
-        "interview_qa": "interview_qa_matrix.txt",
-        "project_context": "project_context.txt",
+        "resume": "honest_resume.md",
+        "cover_letter_template": "cover_letter_templates.md",
+        "interview_qa": "interview_qa_matrix.md",
+        "project_context": "project_context.md",
     }
     for key, filename in files.items():
         filepath = KNOWLEDGE_BASE_DIR / filename
@@ -579,16 +579,18 @@ async def main():
     headless_mode = not has_display
     print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={USER_DATA_DIR})")
 
-    # Configure Nodriver explicitly for root VPS execution
-    config = uc.Config()
-    config.headless = headless_mode
-    config.user_data_dir = USER_DATA_DIR
-    config.sandbox = False
-    config.add_argument('--disable-dev-shm-usage')
-    config.add_argument('--disable-gpu')
-    config.add_argument('--disable-software-rasterizer')
-    
-    browser = await uc.start(config=config)
+    browser = await uc.start(
+        headless=headless_mode,
+        no_sandbox=True,
+        user_data_dir=USER_DATA_DIR,
+        browser_args=[
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer'
+        ]
+    )
 
     # --- NEW COOKIE INJECTION BLOCK ---
     li_at_cookie = os.getenv("LINKEDIN_LI_AT")
