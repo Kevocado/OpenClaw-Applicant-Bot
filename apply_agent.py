@@ -470,8 +470,8 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
             current_url = getattr(page.target, 'url', '')
             
         if 'chrome-error://' in str(current_url):
-            print(f"⚠️ [PROXY] Network error detected (Attempt {attempt}/{max_retries}). Retrying with fresh proxy IP...")
-            await asyncio.sleep(3)
+            print(f"⚠️ [NETWORK] Connection dropped by LinkedIn (Attempt {attempt}/{max_retries}). Retrying navigation...")
+            await asyncio.sleep(4)
             continue
         else:
             break
@@ -582,10 +582,13 @@ async def main():
     browser = await uc.start(
         headless=headless_mode,
         no_sandbox=True,
+        user_data_dir=USER_DATA_DIR,
         browser_args=[
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage'
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer'
         ]
     )
 
