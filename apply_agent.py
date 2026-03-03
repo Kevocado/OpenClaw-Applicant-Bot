@@ -632,14 +632,14 @@ async def main():
         await asyncio.sleep(random.uniform(3.5, 6.8))
 
     mm_cookie = os.getenv("MIGRATEMATE_COOKIE")
-    if mm_cookie and "migratemate.com" in job_url:
+    if mm_cookie and "migratemate.co" in job_url:
         print("[AUTH] Injecting MigrateMate session cookie...")
-        page = await browser.get("https://migratemate.com/robots.txt")
+        page = await browser.get("https://migratemate.co/robots.txt")
         await asyncio.sleep(random.uniform(2.1, 4.5)) 
         await page.send(network.set_cookie(
             name="session",
             value=mm_cookie,
-            domain="migratemate.com",
+            domain=".migratemate.co",
             path="/",
             secure=True,
             http_only=True

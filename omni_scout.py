@@ -142,18 +142,18 @@ async def main():
             print("[SCOUT] Checking for MigrateMate Session...")
             mm_cookie = os.getenv("MIGRATEMATE_COOKIE")
             if mm_cookie:
-                page_mm = await browser.get("https://migratemate.com/robots.txt")
+                page_mm = await browser.get("https://migratemate.co/robots.txt")
                 await asyncio.sleep(2)
                 await page_mm.send(uc.cdp.network.set_cookie(
                     name="session", # typical name, user can verify
                     value=mm_cookie,
-                    domain="migratemate.com",
+                    domain=".migratemate.co",
                     path="/",
                     secure=True,
                     http_only=True
                 ))
             
-            page_mm = await browser.get(f'https://migratemate.com/jobs?query={query_encoded}&visa=cpt')
+            page_mm = await browser.get(f'https://migratemate.co/jobs?query={query_encoded}')
             mm_jobs = await extract_jobs_from_dom(page_mm, "MigrateMate", 1)
             all_extracted_jobs.extend(mm_jobs)
             print(f"        -> Found {len(mm_jobs)} on MM")
