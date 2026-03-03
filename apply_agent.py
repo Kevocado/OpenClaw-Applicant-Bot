@@ -555,7 +555,6 @@ async def main():
     print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={USER_DATA_DIR})")
 
     browser = await uc.start(
-        user_data_dir=USER_DATA_DIR,
         headless=headless_mode,
         sandbox=False,
         browser_args=[

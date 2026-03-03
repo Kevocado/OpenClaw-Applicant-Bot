@@ -107,16 +107,11 @@ async def main():
     print(f"[SCOUT] Initializing Omni-Scout Browser (headless={headless_mode})...")
     browser = await uc.start(
         headless=headless_mode,
-        user_data_dir="./user_data_dir",
         no_sandbox=True,
         browser_args=[
-            f'--proxy-server={PROXY_SERVER}',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-dev-shm-usage',
-            '--window-size=1920,1080',
-            '--no-sandbox',
-            '--disable-setuid-sandbox'
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage'
         ]
     )
     
