@@ -27,6 +27,10 @@ BOT_REGISTRY = {
         "path": "/root/OpenClaw-Applicant-Bot/openclaw.json",
         "description": "Searches for jobs and applies to them."
     },
+    "application_agent": {
+        "path": "/root/OpenClaw-Applicant-Bot/knowledge_base/application_rules.json",
+        "description": "Controls the 'Free Thinking' application form rules (e.g., target salary, relocation)."
+    },
     # Example for the future:
     # "real_estate_bot": {
     #     "path": "/root/OpenClaw-RealEstate/target_zips.json",
@@ -120,8 +124,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         edit_response = model.generate_content(edit_prompt).text.strip()
         clean_json = re.sub(r"```json|```", "", edit_response).strip()
-        new_config = json.loads(clean_json)
         
+        try:
+            new_config = json.loads(clean_json)
+        except json.JSONDecodeError as e:
+            await update.message.reply_text(f"⚠️ <b>Fatal Error:</b> The LLM produced invalid JSON. The file was NOT overwritten to protect the bot.\n\nError: {e}\n\nLLM Output:\n<pre>{clean_json}</pre>", parse_mode='HTML')
+            return
+            
         with open(target_path, "w") as f:
             json.dump(new_config, f, indent=4)
             

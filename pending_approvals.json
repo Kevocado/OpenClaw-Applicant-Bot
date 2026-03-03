@@ -1,0 +1,22 @@
+[
+  {
+    "job_url": "https://www.linkedin.com/jobs/view/software-engineer-intern-summer-at-stripe-4369001494",
+    "company_tier": "High",
+    "visa_eligible": true,
+    "cover_letter": "Dear Hiring Manager,\n\nClive Humby's observation that \"Like oil, data is valuable but, if unrefined, it cannot be used\" really captures how I approach turning complex information into clear strategies that make a real business difference. I'm excited to apply for the Software Engineer, Intern (Summer) role at Stripe. I believe my experience in Python, machine learning, and data analysis can help contribute to Stripe's mission of increasing the GDP of the internet.\n\nStripe's dedication to tackling important projects to increase global commerce truly resonates with me. During my internship at WOW Payments, I didn't just analyze regional campaign data in Excel; I also went out to pitch payment processing solutions to over 100 small business owners. This hands-on approach taught me to always check data insights against real customer feedback. More recently, I led an analytics consulting team at UIUC that found $3.05M in supply chain savings for DOT Foods. We did this by modeling trade-offs between warehouse efficiency and driver costs, which led to a 57% reduction in unloading time. These experiences have really honed my ability to translate data into practical solutions and drive measurable impact.\n\nMy interest in blending technology with business strategy goes beyond my professional roles. At NYU, I excelled in Management Science, using R, Tableau, and Python to solve tough optimization problems. Now, as a master's student in Business Analytics (STEM) at UIUC with a 3.9 GPA, I'm diving deeper into predictive analytics and machine learning, always keeping an eye on how these skills apply to real-world business challenges.\n\nI'm particularly drawn to Stripe's focus on building robust financial infrastructure and scalable solutions. My project where I built and deployed a machine learning model to predict S&P 500 stock movements, using real-time data pipelines and ensemble methods, gave me valuable experience in quantitative analysis and building reliable systems. I'm eager to deepen this expertise and learn from Stripe's innovative approach.\n\nAs an F-1 international student completing a STEM-designated Master's degree, I'm eligible for 36 months of OPT work authorization after graduation (December 2026). This provides plenty of time for long-term project engagement. My fluency in English and Swahili, along with my ability to adapt to different environments, helps me work effectively with diverse teams and stakeholders.\n\nThank you for considering my application. I'm confident that my analytical background, my track record of delivering results, and my enthusiasm for solving complex business problems make me a strong candidate for Stripe.\n\nSincerely,\nKevin Kiptoo Sigey",
+    "qa_answers": {
+      "What is your expected graduation date?": "December 2026",
+      "What is your GPA?": "3.9",
+      "What is your highest level of education?": "Master's degree (M.S. in Business Analytics, UIUC)",
+      "Are you willing to relocate?": "Yes",
+      "What is your desired salary/hourly rate?": "Flexible/Negotiable",
+      "How did you hear about this position?": "LinkedIn",
+      "Are you legally authorized to work in the United States?": "Yes.",
+      "Will you now or in the future require sponsorship for employment visa status (e.g., H-1B)?": "Yes.",
+      "Do you require sponsorship for this internship?": "No. As an MSBA student, I am fully authorized to work for summer internships via CPT, at no cost or administrative burden to the employer.",
+      "Do you require visa sponsorship now or in the future?": "I am an F-1 international student completing a STEM-designated Master's degree at UIUC. I am fully authorized for internships via CPT and will be eligible for 36 months of STEM OPT work authorization post-graduation (December 2026). This provides substantial runway for employment without requiring immediate sponsorship action."
+    },
+    "timestamp": "2026-03-03T19:58:57.844065+00:00",
+    "status": "pending_approval"
+  }
+]

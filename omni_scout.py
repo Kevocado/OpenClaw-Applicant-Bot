@@ -12,15 +12,17 @@ import sys
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from dotenv import load_dotenv
+from queue_manager import JobQueue
 
 load_dotenv()
 
 # Load config from openclaw.json
 try:
     with open("openclaw.json", "r") as f:
-        config = json.load(f).get("scout_config", {})
+        # Properly parse the nested JSON architecture
+        config = json.load(f).get("agents", {}).get("job_bot", {}).get("scout_config", {})
     base_roles = config.get("target_roles", [])
-    TARGET_ROLES = config.get("keywords", []) + ["Engineer", "Developer", "Data", "Product", "Intern"]
+    TARGET_ROLES = config.get("keywords", []) + ["Engineer", "Developer", "Data", "Product", "Intern", "Analyst", "Scientist"]
 except Exception as e:
     print(f"[SCOUT] Error loading openclaw.json: {e}")
     base_roles = ["Software Engineer Intern"]
@@ -28,26 +30,18 @@ except Exception as e:
     config = {}
 
 def generate_search_queries(base_roles, config):
-    try:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return base_roles[:3]
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json", "temperature": 0.7})
-        
-        prompt = f"Given these target roles: {base_roles} and keywords: {config.get('keywords', [])}. Generate exactly 5 diverse, highly effective job search query strings that capture semantic variations (e.g. abbreviations, different titles, specific keywords) for job boards. Return ONLY a JSON array of strings. Example: ['Software Engineer Intern Summer 2026', 'SWE Intern OPT', 'Data Scientist Visa Sponsorship']"
-        
-        response = model.generate_content(prompt)
-        queries = json.loads(response.text)
-        if isinstance(queries, list) and len(queries) > 0:
-            return queries[:5]
-    except Exception as e:
-        print(f"[SCOUT] Failed to generate AI queries: {e}")
-    return base_roles
+    # Bypass AI generation for now to ensure stable, exact-match queries
+    # and prevent it from searching crazy generalized terms.
+    print(f"[SCOUT] Using exact match target roles: {base_roles[:2]}")
+    return base_roles[:2]
 
 search_queries = generate_search_queries(base_roles, config)
 
-PROXY_SERVER = "http://gw.dataimpulse.com:823"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
+USER_DATA_DIR = "/Users/sigey/Documents/Projects/OpenClaw Resume Bot/user_data_dir"
+# DataImpulse Residential Proxy (Commented out to use native Mac Wi-Fi)
+# PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
 async def extract_jobs_from_dom(page, platform, priority):
     """
@@ -70,6 +64,15 @@ async def extract_jobs_from_dom(page, platform, priority):
                 
                 if not href or not text:
                     continue
+                    
+                # Fix relative URLs
+                if href.startswith('/'):
+                    if platform == "MigrateMate":
+                        href = "https://migratemate.co" + href
+                    elif platform == "Handshake":
+                        href = "https://app.joinhandshake.com" + href
+                    elif platform == "LinkedIn":
+                        href = "https://www.linkedin.com" + href
                     
                 # Basic heuristic filtering for job links
                 is_job_link = False
@@ -115,86 +118,85 @@ async def extract_jobs_from_dom(page, platform, priority):
             pass
             
     return unique_jobs[:10]
+    return unique_jobs[:10]
 
-async def main():
-    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
-    headless_mode = not has_display
-    print(f"[SCOUT] Initializing Omni-Scout Browser (headless={headless_mode})...")
-    browser = await uc.start(
-        headless=headless_mode,
-        no_sandbox=True,
-        browser_args=[
-            f'--proxy-server={PROXY_SERVER}',
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage'
-        ]
-    )
-    
-    all_extracted_jobs = []
+async def run_scout(main_tab, queue: JobQueue):
+    added_count = 0
 
     try:
+        # Target 1: MigrateMate (Base page + Filter Click)
+        print("[SCOUT] Sourcing from MigrateMate...")
+        await main_tab.get('https://migratemate.co/jobs')
+        
+        # Give the React Virtual DOM time to paint the screen
+        await asyncio.sleep(4)
+        
+        try:
+            # Find and click the specific filter button
+            filter_btn = await main_tab.select('button:contains("Apply Filters")')
+            await filter_btn.click()
+            print("[SCOUT] Filters applied. Waiting for results...")
+            
+            # Give the network time to fetch the filtered jobs
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"[SCOUT] Failed to apply filters on MigrateMate: {e}")
+
+        mm_jobs = await extract_jobs_from_dom(main_tab, "MigrateMate", 1)
+        for job in mm_jobs:
+            if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="MigrateMate"):
+                added_count += 1
+        print(f"        -> Found {len(mm_jobs)} on MM")
+        
         for query in search_queries:
             print(f"[SCOUT] Target: Scouring for '{query}'...")
             query_encoded = urllib.parse.quote(query)
 
-            # Target 1: MigrateMate 
-            print("[SCOUT] Checking for MigrateMate Session...")
-            mm_cookie = os.getenv("MIGRATEMATE_COOKIE")
-            if mm_cookie:
-                page_mm = await browser.get("https://migratemate.co/robots.txt")
-                await asyncio.sleep(2)
-                await page_mm.send(uc.cdp.network.set_cookie(
-                    name="session", # typical name, user can verify
-                    value=mm_cookie,
-                    domain=".migratemate.co",
-                    path="/",
-                    secure=True,
-                    http_only=True
-                ))
-            
-            page_mm = await browser.get(f'https://migratemate.co/jobs?query={query_encoded}')
-            mm_jobs = await extract_jobs_from_dom(page_mm, "MigrateMate", 1)
-            all_extracted_jobs.extend(mm_jobs)
-            print(f"        -> Found {len(mm_jobs)} on MM")
-
             # Target 2: Handshake
-            print("[SCOUT] Checking for Handshake Session...")
-            hs_cookie = os.getenv("HANDSHAKE_COOKIE")
-            if hs_cookie:
-                page_hs = await browser.get("https://app.joinhandshake.com/robots.txt")
-                await asyncio.sleep(2)
-                await page_hs.send(uc.cdp.network.set_cookie(
-                    name="_handshake_session", # typical name, user can verify
-                    value=hs_cookie,
-                    domain="app.joinhandshake.com",
-                    path="/",
-                    secure=True,
-                    http_only=True
-                ))
-
-            page_hs = await browser.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&employer_preferences_sponsor_internship=true')
-            hs_jobs = await extract_jobs_from_dom(page_hs, "Handshake", 2)
-            all_extracted_jobs.extend(hs_jobs)
+            print("[SCOUT] Sourcing from Handshake...")
+            await main_tab.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}')
+            hs_jobs = await extract_jobs_from_dom(main_tab, "Handshake", 2)
+            for job in hs_jobs:
+                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
+                    added_count += 1
             print(f"        -> Found {len(hs_jobs)} on HS")
 
             # Target 3: LinkedIn (No Session Cookie = Public Safe Scraping)
             print("[SCOUT] Searching LinkedIn...")
-
-            page_li = await browser.get(f'https://www.linkedin.com/jobs/search/?keywords={query_encoded}')
-            li_jobs = await extract_jobs_from_dom(page_li, "LinkedIn", 3)
-            all_extracted_jobs.extend(li_jobs)
+            await main_tab.get(f'https://www.linkedin.com/jobs/search/?keywords={query_encoded}')
+            li_jobs = await extract_jobs_from_dom(main_tab, "LinkedIn", 3)
+            for job in li_jobs:
+                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="LinkedIn"):
+                    added_count += 1
             print(f"        -> Found {len(li_jobs)} on LI")
 
     except Exception as e:
-        print(f"[SCOUT] Critical browser error: {e}")
+        print(f"[SCOUT] Critical browser error during scout loop: {e}")
     
-    finally:
-        browser.stop()
+    print(f"\n[SCOUT] Total new unique jobs added to queue: {added_count}")
+    return added_count
 
-    # Output strictly as JSON for n8n Parsing
-    print("\nSCOUT_JSON::")
-    print(json.dumps(all_extracted_jobs, indent=2))
+async def main():
+    # Keep local testable version just in case
+    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
+    headless_mode = False
+    browser = await uc.start(
+        headless=headless_mode,
+        user_data_dir=USER_DATA_DIR,
+        no_sandbox=True,
+        browser_args=[
+            '--profile-directory=Profile 3',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-setuid-sandbox',
+            '--disable-session-crashed-bubble',
+            '--enforce-webrtc-ip-handling-policy=default_public_interface_only'
+        ]
+    )
+    queue = JobQueue()
+    await run_scout(browser, queue)
+    browser.stop()
 
 if __name__ == '__main__':
     uc.loop().run_until_complete(main())
