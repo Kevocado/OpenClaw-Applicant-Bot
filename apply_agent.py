@@ -451,14 +451,30 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
     Main application flow for a single job.
     Returns exit code: 0=success, 1=failure, 2=high-tier paused.
     """
-    page = await browser.get(job_url)
     print(f"\n{'='*60}")
     print(f"[JOB] Navigating to: {job_url}")
     print(f"{'='*60}")
 
-    # Give the page plenty of time to fully load all its heavy tracking scripts
-    print("[JOB] Waiting for page to fully render...")
-    await asyncio.sleep(random.uniform(5.0, 8.5))
+    # Robust Proxy Retry Logic
+    max_retries = 3
+    page = None
+    for attempt in range(1, max_retries + 1):
+        page = await browser.get(job_url)
+        print("[JOB] Waiting for page to fully render...")
+        await asyncio.sleep(random.uniform(5.0, 8.5))
+        
+        # Check against proxy connection drops
+        current_url = getattr(page.target, 'url', '')
+        if 'chrome-error://' in current_url:
+            print(f"⚠️ [PROXY] Network error detected (Attempt {attempt}/{max_retries}). Retrying with fresh proxy IP...")
+            await asyncio.sleep(3)
+            continue
+        else:
+            break
+            
+    if page and 'chrome-error://' in getattr(page.target, 'url', ''):
+        print("[JOB] ERROR: Proxy repeatedly failed to connect to the target URL.")
+        return EXIT_FAILURE
 
     # Wait for page to fully load (LinkedIn is JS-heavy)
     print("[JOB] Waiting for page to load...")
@@ -556,15 +572,13 @@ async def main():
 
     browser = await uc.start(
         headless=headless_mode,
-        sandbox=False,
+        no_sandbox=True,
         browser_args=[
-            "--window-size=1920,1080",
-            "--disable-blink-features=AutomationControlled",
-            f"--proxy-server={PROXY_SERVER}",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-        ],
+            f'--proxy-server={PROXY_SERVER}',
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage'
+        ]
     )
 
     # --- NEW COOKIE INJECTION BLOCK ---
