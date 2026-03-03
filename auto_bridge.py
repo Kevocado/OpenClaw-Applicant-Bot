@@ -13,16 +13,27 @@ def run_pipeline():
         text=True
     )
     
-    # Extract the JSON block from the scout's output
-    match = re.search(r'SCOUT_JSON::\s*(\[.*?\])', scout_process.stdout, re.DOTALL)
-    
-    if not match:
+    if "SCOUT_JSON::" not in scout_process.stdout:
         print("❌ Could not find valid job data from Omni-Scout.")
         print("Scout Output:", scout_process.stdout)
         print("Scout Error:", scout_process.stderr)
         return
 
-    jobs = json.loads(match.group(1))
+    # Extract everything after SCOUT_JSON::
+    json_str = scout_process.stdout.split("SCOUT_JSON::")[1]
+    
+    # nodriver often prints cleanup messages at the very end of stdout, which corrupts the JSON
+    if "successfully removed temp profile" in json_str:
+        json_str = json_str.split("successfully removed temp profile")[0]
+        
+    json_str = json_str.strip()
+    
+    try:
+        jobs = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON Parsing Error: {e}")
+        print(f"Raw Extracted String:\n{json_str}")
+        return
     print(f"🎯 Scout found {len(jobs)} high-priority jobs. Moving to Application Phase...")
     
     # Loop through each job and apply
