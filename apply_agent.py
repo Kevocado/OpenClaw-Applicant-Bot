@@ -523,33 +523,49 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
         await take_screenshot(page, "high_tier_paused")
         return EXIT_HIGH_TIER_PAUSED
 
-    # Step 6: Standard-tier → Auto-fill and submit (Path 3)
-    print("[JOB] STANDARD-TIER — proceeding with auto-fill")
-    await fill_application_form(page, analysis)
+    # Step 6: Extract External ATS Link
+    print("[JOB] Hunting for external ATS Apply link...")
+    try:
+        external_url = await page.evaluate('''
+            () => {
+                let applyBtn = document.querySelector('a.apply-button') || document.querySelector('.jobs-apply-button') || Array.from(document.querySelectorAll('a')).find(el => el.textContent.trim().toLowerCase() === 'apply');
+                if (applyBtn && applyBtn.href) {
+                    return applyBtn.href;
+                }
+                return null;
+            }
+        ''')
+    except Exception:
+        external_url = None
 
-    # Step 6: Look for submit button (but DON'T click yet — safety first)
-    submit_selectors = [
-        "button[type='submit']",
-        "input[type='submit']",
-        "button[class*='submit']",
-        "[data-testid*='submit']",
-    ]
+    if external_url and 'linkedin.com' in external_url and 'sign-in' in external_url:
+        print("[JOB] Cannot extract ATS link. Button leads to LinkedIn sign-in (likely Easy Apply).")
+        await take_screenshot(page, "easy_apply_wall")
+        return EXIT_FAILURE
 
-    for selector in submit_selectors:
-        try:
-            submit_btn = await page.query_selector(selector)
-            if submit_btn:
-                print(f"[JOB] Found submit button: {selector}")
-                await submit_btn.click()
-                print("[JOB] ✅ Application submitted!")
-                await take_screenshot(page, "ready_to_submit")
-                return EXIT_SUCCESS
-        except Exception:
-            continue
+    if not external_url:
+        print("[JOB] WARNING: Could not find external Apply link. It may be an Easy Apply role or requires login.")
+        await take_screenshot(page, "no_external_link")
+        return EXIT_FAILURE
 
-    print("[JOB] WARNING: No submit button found")
-    await take_screenshot(page, "no_submit_button")
-    return EXIT_FAILURE
+    print(f"[JOB] Found ATS Link: {external_url}")
+    print("[JOB] Pivoting to ATS...")
+    page = await browser.get(external_url)
+    
+    print("[JOB] Waiting for ATS page to load...")
+    await asyncio.sleep(8)
+    
+    try:
+        current_ats_url = await page.evaluate("window.location.href")
+    except Exception:
+        current_ats_url = getattr(page.target, 'url', 'Unknown')
+        
+    print(f"[JOB] Arrived at ATS target: {current_ats_url}")
+    await take_screenshot(page, "arrived_at_ats")
+    
+    # Placeholder for full ATS form-fill logic
+    print("[JOB] ✅ ATS Direct routing architecture successfully tested!")
+    return EXIT_SUCCESS
 
 
 async def main():
@@ -592,62 +608,8 @@ async def main():
         ]
     )
 
-    # --- NEW COOKIE INJECTION BLOCK ---
-    li_at_cookie = os.getenv("LINKEDIN_LI_AT")
-    if li_at_cookie:
-        print("[AUTH] Injecting LinkedIn session cookie...")
-        # Navigate to a safe page to establish domain context
-        page = await browser.get("https://www.linkedin.com/robots.txt")
-        
-        # Pause for 2 to 4 seconds to simulate reading the page
-        await asyncio.sleep(random.uniform(2.1, 4.5)) 
-        
-        await page.send(network.set_cookie(
-            name="li_at",
-            value=li_at_cookie,
-            domain=".linkedin.com",
-            path="/",
-            secure=True,
-            http_only=True
-        ))
-        print("[AUTH] Cookie injected successfully. Simulating human pause...")
-        
-        # Pause before jumping to the job URL (Crucial for bypassing 429s)
-        await asyncio.sleep(random.uniform(3.5, 6.8))
-    else:
-        print("⚠️ WARNING: LINKEDIN_LI_AT not found in .env. Bot may face LinkedIn login walls.")
-
-    hs_cookie = os.getenv("HANDSHAKE_COOKIE")
-    if hs_cookie and "joinhandshake.com" in job_url:
-        print("[AUTH] Injecting Handshake session cookie...")
-        page = await browser.get("https://app.joinhandshake.com/robots.txt")
-        await asyncio.sleep(random.uniform(2.1, 4.5)) 
-        await page.send(network.set_cookie(
-            name="_handshake_session",
-            value=hs_cookie,
-            domain=".joinhandshake.com",
-            path="/",
-            secure=True,
-            http_only=True
-        ))
-        print("[AUTH] Cookie injected successfully. Simulating human pause...")
-        await asyncio.sleep(random.uniform(3.5, 6.8))
-
-    mm_cookie = os.getenv("MIGRATEMATE_COOKIE")
-    if mm_cookie and "migratemate.co" in job_url:
-        print("[AUTH] Injecting MigrateMate session cookie...")
-        page = await browser.get("https://migratemate.co/robots.txt")
-        await asyncio.sleep(random.uniform(2.1, 4.5)) 
-        await page.send(network.set_cookie(
-            name="session",
-            value=mm_cookie,
-            domain=".migratemate.co",
-            path="/",
-            secure=True,
-            http_only=True
-        ))
-        print("[AUTH] Cookie injected successfully. Simulating human pause...")
-        await asyncio.sleep(random.uniform(3.5, 6.8))
+    # Wait a moment before beginning the job loop
+    await asyncio.sleep(2)
     # -----------------------------------
 
     try:
