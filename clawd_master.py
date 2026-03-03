@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import re
+import html
 import google.generativeai as genai
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -63,8 +64,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             result = subprocess.run(cmd_to_run, shell=True, capture_output=True, text=True, timeout=60, cwd="/root/OpenClaw-Applicant-Bot")
-            out = result.stdout.strip()[-3000:] if result.stdout else "No standard output."
-            err = result.stderr.strip()[-1000:] if result.stderr else ""
+            out = html.escape(result.stdout.strip()[-3000:]) if result.stdout else "No standard output."
+            err = html.escape(result.stderr.strip()[-1000:]) if result.stderr else ""
             
             msg = f"🖥️ <b>Command Executed:</b>\n<pre>{cmd_to_run}</pre>\n\n<b>Output:</b>\n<pre>{out}</pre>"
             if err:
