@@ -167,31 +167,19 @@ async def main():
                 await page_hs.send(uc.cdp.network.set_cookie(
                     name="_handshake_session", # typical name, user can verify
                     value=hs_cookie,
-                    domain=".joinhandshake.com",
+                    domain="app.joinhandshake.com",
                     path="/",
                     secure=True,
                     http_only=True
                 ))
 
-            page_hs = await browser.get(f'https://app.joinhandshake.com/stu/jobs?query={query_encoded}&employer_preferences_sponsor_internship=true')
+            page_hs = await browser.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&employer_preferences_sponsor_internship=true')
             hs_jobs = await extract_jobs_from_dom(page_hs, "Handshake", 2)
             all_extracted_jobs.extend(hs_jobs)
             print(f"        -> Found {len(hs_jobs)} on HS")
 
-            # Target 3: LinkedIn
-            print("[SCOUT] Checking for LinkedIn Session...")
-            li_cookie = os.getenv("LINKEDIN_LI_AT")
-            if li_cookie:
-                page_li = await browser.get("https://www.linkedin.com/robots.txt")
-                await asyncio.sleep(2)
-                await page_li.send(uc.cdp.network.set_cookie(
-                    name="li_at",
-                    value=li_cookie,
-                    domain=".linkedin.com",
-                    path="/",
-                    secure=True,
-                    http_only=True
-                ))
+            # Target 3: LinkedIn (No Session Cookie = Public Safe Scraping)
+            print("[SCOUT] Searching LinkedIn...")
 
             page_li = await browser.get(f'https://www.linkedin.com/jobs/search/?keywords={query_encoded}')
             li_jobs = await extract_jobs_from_dom(page_li, "LinkedIn", 3)
