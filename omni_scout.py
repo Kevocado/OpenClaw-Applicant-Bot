@@ -104,6 +104,7 @@ async def main():
     print("[SCOUT] Initializing Omni-Scout Browser...")
     browser = await uc.start(
         headless=True,
+        no_sandbox=True,
         user_data_dir="./user_data_dir",
         browser_args=[
             f'--proxy-server={PROXY_SERVER}',

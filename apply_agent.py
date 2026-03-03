@@ -557,6 +557,7 @@ async def main():
     browser = await uc.start(
         user_data_dir=USER_DATA_DIR,
         headless=headless_mode,
+        no_sandbox=True,
         browser_args=[
             "--window-size=1920,1080",
             "--disable-blink-features=AutomationControlled",
