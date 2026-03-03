@@ -583,8 +583,7 @@ async def main():
     config = uc.Config()
     config.headless = headless_mode
     config.user_data_dir = USER_DATA_DIR
-    config.no_sandbox = True
-    config.add_argument('--disable-setuid-sandbox')
+    config.sandbox = False
     config.add_argument('--disable-dev-shm-usage')
     config.add_argument('--disable-gpu')
     config.add_argument('--disable-software-rasterizer')
