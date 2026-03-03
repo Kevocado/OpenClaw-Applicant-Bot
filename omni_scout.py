@@ -4,6 +4,7 @@ import re
 import nodriver as uc
 import urllib.parse
 import os
+import sys
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -101,15 +102,19 @@ async def extract_jobs_from_dom(page, platform, priority):
     return unique_jobs[:10]
 
 async def main():
-    print("[SCOUT] Initializing Omni-Scout Browser...")
+    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
+    headless_mode = not has_display
+    print(f"[SCOUT] Initializing Omni-Scout Browser (headless={headless_mode})...")
     browser = await uc.start(
-        headless=True,
+        headless=headless_mode,
         sandbox=False,
         user_data_dir="./user_data_dir",
         browser_args=[
             f'--proxy-server={PROXY_SERVER}',
-            '--no-sandbox',
-            '--disable-dev-shm-usage'
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-dev-shm-usage',
+            '--window-size=1920,1080'
         ]
     )
     
