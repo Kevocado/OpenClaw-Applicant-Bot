@@ -584,7 +584,6 @@ async def main():
     config.headless = headless_mode
     config.user_data_dir = USER_DATA_DIR
     config.no_sandbox = True
-    config.add_argument('--no-sandbox')
     config.add_argument('--disable-setuid-sandbox')
     config.add_argument('--disable-dev-shm-usage')
     config.add_argument('--disable-gpu')
