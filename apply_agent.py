@@ -579,18 +579,18 @@ async def main():
     headless_mode = not has_display
     print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={USER_DATA_DIR})")
 
-    browser = await uc.start(
-        headless=headless_mode,
-        no_sandbox=True,
-        user_data_dir=USER_DATA_DIR,
-        browser_args=[
-            '--no-sandbox', 
-            '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer'
-        ]
-    )
+    # Configure Nodriver explicitly for root VPS execution
+    config = uc.Config()
+    config.headless = headless_mode
+    config.user_data_dir = USER_DATA_DIR
+    config.no_sandbox = True
+    config.add_argument('--no-sandbox')
+    config.add_argument('--disable-setuid-sandbox')
+    config.add_argument('--disable-dev-shm-usage')
+    config.add_argument('--disable-gpu')
+    config.add_argument('--disable-software-rasterizer')
+    
+    browser = await uc.start(config=config)
 
     # --- NEW COOKIE INJECTION BLOCK ---
     li_at_cookie = os.getenv("LINKEDIN_LI_AT")
