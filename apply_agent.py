@@ -584,6 +584,7 @@ async def main():
         user_data_dir=USER_DATA_DIR,
         no_sandbox=True,
         browser_args=[
+            f'--proxy-server={PROXY_SERVER}',
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
