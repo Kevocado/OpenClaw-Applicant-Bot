@@ -109,6 +109,7 @@ async def main():
         headless=headless_mode,
         no_sandbox=True,
         browser_args=[
+            f'--proxy-server={PROXY_SERVER}',
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
             '--disable-dev-shm-usage'
