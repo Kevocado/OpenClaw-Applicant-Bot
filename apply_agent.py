@@ -20,7 +20,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
-USER_DATA_DIR = os.getenv("USER_DATA_DIR", "./user_data_dir")
+USER_DATA_DIR = os.path.abspath(os.getenv("USER_DATA_DIR", "./user_data_dir"))
 SCREENSHOTS_DIR = Path("./screenshots")
 PENDING_APPROVALS_FILE = Path("./pending_approvals.json")
 KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
