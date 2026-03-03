@@ -482,7 +482,7 @@ async def apply_to_job(browser, job_url: str, client: genai.Client, kb: dict) ->
         except Exception:
             final_url = getattr(page.target, 'url', '')
         if 'chrome-error://' in str(final_url):
-            print("[JOB] ERROR: Proxy repeatedly failed to connect to the target URL.")
+            print("[JOB] ERROR: Browser tab repeatedly crashed on navigation (chrome-error://chromewebdata).")
             return EXIT_FAILURE
 
     # Wait for page to fully load (LinkedIn is JS-heavy)
