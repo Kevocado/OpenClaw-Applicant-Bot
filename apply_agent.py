@@ -590,7 +590,39 @@ async def main():
         # Pause before jumping to the job URL (Crucial for bypassing 429s)
         await asyncio.sleep(random.uniform(3.5, 6.8))
     else:
-        print("⚠️ WARNING: LINKEDIN_LI_AT not found in .env. Bot may face login walls.")
+        print("⚠️ WARNING: LINKEDIN_LI_AT not found in .env. Bot may face LinkedIn login walls.")
+
+    hs_cookie = os.getenv("HANDSHAKE_COOKIE")
+    if hs_cookie and "joinhandshake.com" in job_url:
+        print("[AUTH] Injecting Handshake session cookie...")
+        page = await browser.get("https://app.joinhandshake.com/robots.txt")
+        await asyncio.sleep(random.uniform(2.1, 4.5)) 
+        await page.send(network.set_cookie(
+            name="_handshake_session",
+            value=hs_cookie,
+            domain=".joinhandshake.com",
+            path="/",
+            secure=True,
+            http_only=True
+        ))
+        print("[AUTH] Cookie injected successfully. Simulating human pause...")
+        await asyncio.sleep(random.uniform(3.5, 6.8))
+
+    mm_cookie = os.getenv("MIGRATEMATE_COOKIE")
+    if mm_cookie and "migratemate.com" in job_url:
+        print("[AUTH] Injecting MigrateMate session cookie...")
+        page = await browser.get("https://migratemate.com/robots.txt")
+        await asyncio.sleep(random.uniform(2.1, 4.5)) 
+        await page.send(network.set_cookie(
+            name="session",
+            value=mm_cookie,
+            domain="migratemate.com",
+            path="/",
+            secure=True,
+            http_only=True
+        ))
+        print("[AUTH] Cookie injected successfully. Simulating human pause...")
+        await asyncio.sleep(random.uniform(3.5, 6.8))
     # -----------------------------------
 
     try:
