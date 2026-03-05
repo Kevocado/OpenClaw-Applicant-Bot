@@ -26,7 +26,7 @@ async def main():
     browser_kwargs = {
         "user_data_dir": BOT_PROFILE_DIR,
         "headless": headless_mode,
-        "no_sandbox": True, # Required for running as root on VPS
+        "sandbox": False, # Required for running as root on VPS
         "browser_args": [
             '--disable-dev-shm-usage',
             '--disable-gpu',
