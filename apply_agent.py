@@ -21,8 +21,9 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
-USER_DATA_DIR = "/Users/sigey/Documents/Projects/OpenClaw Resume Bot/user_data_dir"
-SCREENSHOTS_DIR = Path("./screenshots")
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+USER_DATA_DIR = os.path.join(PROJECT_ROOT, "bot_chrome_profile")
+SCREENSHOTS_DIR = Path(os.path.join(PROJECT_ROOT, "screenshots"))
 PENDING_APPROVALS_FILE = Path("./pending_approvals.json")
 KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
 # Exit codes for n8n orchestration
@@ -64,8 +65,9 @@ def load_knowledge_base() -> dict:
             kb[key] = filepath.read_text(encoding="utf-8")
             print(f"[KB] Loaded {filename} ({len(kb[key])} chars)")
         else:
-            print(f"[KB] WARNING: {filename} not found at {filepath}")
-            kb[key] = ""
+            print(f"[KB] 🚨 CRITICAL ERROR: {filename} not found at {filepath}")
+            print("[KB] Cannot proceed without core knowledge base. Exiting.")
+            sys.exit(1)
     return kb
 
 

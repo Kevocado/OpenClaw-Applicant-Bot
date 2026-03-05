@@ -75,8 +75,9 @@ async def main():
     browser_kwargs = {
         "user_data_dir": USER_DATA_DIR,
         "headless": False,
-        "sandbox": False, # Required for running as root on VPS
         "browser_args": [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--window-size=1280,900",
             "--remote-debugging-host=127.0.0.1",
         ],

@@ -22,16 +22,22 @@ async def main():
     
     print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={BOT_PROFILE_DIR})")
     
+    # [ROBUSTNESS]: Prevent headless browser from booting if API keys are missing
+    if not os.getenv("GEMINI_API_KEY") and not os.getenv("KEYWORDSAI_API_KEY"):
+        print("[BRIDGE] 🚨 CRITICAL ERROR: No LLM API key configured in .env.")
+        print("[BRIDGE] You must provide GEMINI_API_KEY (or KEYWORDSAI_API_KEY) to proceed.")
+        sys.exit(1)
+        
     # Optional: explicitly point to Chrome for Testing if installed
     browser_kwargs = {
         "user_data_dir": BOT_PROFILE_DIR,
         "headless": headless_mode,
-        "sandbox": False, # Required for running as root on VPS
         "browser_args": [
+            '--no-sandbox',           # [CRITICAL]: Required for running as root on VPS
+            '--disable-setuid-sandbox', # [CRITICAL]: Required for running as root on VPS
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
-            '--disable-setuid-sandbox',
             '--disable-session-crashed-bubble',
             '--enforce-webrtc-ip-handling-policy=default_public_interface_only',
             '--remote-debugging-host=127.0.0.1'

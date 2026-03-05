@@ -6,7 +6,7 @@ import urllib.parse
 import os
 import sys
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 from queue_manager import JobQueue
 
@@ -38,7 +38,8 @@ search_queries = generate_search_queries(base_roles, config)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
-USER_DATA_DIR = "/Users/sigey/Documents/Projects/OpenClaw Resume Bot/user_data_dir"
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+USER_DATA_DIR = os.path.join(PROJECT_ROOT, "bot_chrome_profile")
 # DataImpulse Residential Proxy (Commented out to use native Mac Wi-Fi)
 # PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
