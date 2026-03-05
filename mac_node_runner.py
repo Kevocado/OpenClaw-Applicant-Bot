@@ -24,16 +24,100 @@ async def process_payload(payload_path: Path):
         print(f"\n[MAC NODE] 🚀 Processing Payload: {company} - {role} ({job_id})")
         print(f"[MAC NODE] Navigating to target: {job_url}")
         
-        # NOTE: Here we will shell out to the `clawbrowser` command line 
-        # or use the Playwright Python API natively with our stealth config.
-        # Ensure our `openclaw_mac_node.json` configuration is respected.
+        from playwright.async_api import async_playwright
         
-        # --- MOCK EXECUTION FOR NOW ---
-        print(f"[MAC NODE] Target URL: {job_url}")
-        print(f"[MAC NODE] Injecting Cover Letter: {len(cover_letter)} chars")
-        print(f"[MAC NODE] Injecting Q&A Answers: {len(qa_answers)} questions answered")
-        await asyncio.sleep(2)  # Emulate execution
-        # ------------------------------
+        async with async_playwright() as p:
+            print("[MAC NODE] Launching Chrome via Playwright...")
+            # We run headful (headless=False) on the Mac Node for maximum residential fidelity
+            browser = await p.chromium.launch(
+                headless=False,
+                args=['--disable-blink-features=AutomationControlled']
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            
+            # Stealth evasion: scrub webdriver flags
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+            
+            page = await context.new_page()
+            print(f"[MAC NODE] Navigating to: {job_url}")
+            await page.goto(job_url, timeout=60000)
+            await asyncio.sleep(5)  # Let React Virtual DOM settle
+            
+            # ─── NATIVE REACT DOM INJECTION ──────────────────────────────
+            print("[MAC NODE] Injecting Cover Letter & Q&A Answers using native React Object bypass...")
+            
+            inject_payload = {
+                "cover_letter": cover_letter,
+                "qa_answers": qa_answers
+            }
+            
+            await page.evaluate("""
+            (payload) => {
+                const { cover_letter, qa_answers } = payload;
+                
+                // The React 16+ State Bypass
+                const setNativeValue = (element, value) => {
+                    const valueSetter = Object.getOwnPropertyDescriptor(element.__proto__, 'value') ?
+                        Object.getOwnPropertyDescriptor(element.__proto__, 'value').set :
+                        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value').set;
+                        
+                    let protoSetter;
+                    if (element.tagName === 'TEXTAREA') {
+                        protoSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                    } else if (element.tagName === 'INPUT') {
+                        protoSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    }
+                    
+                    if (protoSetter && protoSetter !== valueSetter) {
+                        protoSetter.call(element, value);
+                    } else if (valueSetter) {
+                        valueSetter.call(element, value);
+                    } else {
+                        element.value = value;
+                    }
+                    
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                };
+                
+                // Example logic to find a textarea for cover letter and inject
+                const textareas = document.querySelectorAll('textarea');
+                textareas.forEach(ta => {
+                    // Primitive string matching to find cover letter boxes
+                    if (ta.name.toLowerCase().includes('cover') || ta.id.toLowerCase().includes('cover')) {
+                        setNativeValue(ta, cover_letter);
+                    } else {
+                        // Attempt to inject QA answers if keys roughly match names/labels
+                        for (const [key, answer] of Object.entries(qa_answers)) {
+                            if (ta.name.toLowerCase().includes(key.toLowerCase())) {
+                                setNativeValue(ta, answer);
+                            }
+                        }
+                    }
+                });
+                
+                // Example logic to find input fields for QA
+                const inputs = document.querySelectorAll('input[type="text"]');
+                inputs.forEach(inp => {
+                    for (const [key, answer] of Object.entries(qa_answers)) {
+                        if (inp.name.toLowerCase().includes(key.toLowerCase()) || inp.id.toLowerCase().includes(key.toLowerCase())) {
+                            setNativeValue(inp, answer);
+                        }
+                    }
+                });
+            }
+            """, inject_payload)
+            # ─────────────────────────────────────────────────────────────
+            
+            await asyncio.sleep(3)
+            print("[MAC NODE] Injection complete. Reviewing DOM...")
+            await browser.close()
         
         # Execution successful. Clean up payload.
         print(f"[MAC NODE] ✅ Execution successful. Purging payload.")

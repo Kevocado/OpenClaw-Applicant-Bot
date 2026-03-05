@@ -4,19 +4,18 @@ import re
 import urllib.parse
 import os
 import sys
-import requests
 from bs4 import BeautifulSoup
 from google import genai
 from dotenv import load_dotenv
 from queue_manager import JobQueue
 import time
+from playwright.async_api import async_playwright
 
 load_dotenv()
 
 # Load config from openclaw.json
 try:
     with open("openclaw.json", "r") as f:
-        # Properly parse the nested JSON architecture
         config = json.load(f).get("agents", {}).get("job_bot", {}).get("scout_config", {})
     base_roles = config.get("target_roles", [])
     TARGET_ROLES = config.get("keywords", []) + ["Engineer", "Developer", "Data", "Product", "Intern", "Analyst", "Scientist"]
@@ -37,29 +36,18 @@ def generate_search_queries(base_roles, config):
 
 search_queries = generate_search_queries(base_roles, config)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
-
-# DataImpulse Residential Proxy (Commented out to use native Mac Wi-Fi)
-# PROXY_SERVER = "http://gw.dataimpulse.com:823"
-
-
-def fetch_and_extract_jobs(url: str, platform: str, priority: int) -> list:
+async def fetch_and_extract_jobs(page, url: str, platform: str, priority: int) -> list:
     """
-    HTTP GET request for lightweight scraping on the VPS (Brain)
+    Scrape using Playwright so the React DOM actually renders.
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    }
-    
     jobs = []
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
+        await page.goto(url, timeout=30000)
+        # Give the React Virtual DOM time to paint the screen
+        await asyncio.sleep(5)
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        html = await page.content()
+        soup = BeautifulSoup(html, 'html.parser')
         elements = soup.find_all('a', href=True)
         
         for el in elements:
@@ -101,7 +89,7 @@ def fetch_and_extract_jobs(url: str, platform: str, priority: int) -> list:
                 continue
                 
     except Exception as e:
-        print(f"[SCOUT] Failed to HTTP fetch elements on {platform}: {e}")
+        print(f"[SCOUT] Failed to Playwright fetch elements on {platform}: {e}")
             
     # Deduplicate by URL
     seen_urls = set()
@@ -116,37 +104,48 @@ def fetch_and_extract_jobs(url: str, platform: str, priority: int) -> list:
 
 async def run_scout(queue: JobQueue):
     """
-    VPS (Brain) Orchestration loop for scouting. No headless browser.
+    VPS (Brain) Orchestration loop for scouting. Uses headless Playwright.
     """
     added_count = 0
 
     try:
-        # Target 1: MigrateMate
-        print("[SCOUT] HTTP Fetching MigrateMate...")
-        mm_url = "https://migratemate.co/jobs"
-        mm_jobs = fetch_and_extract_jobs(mm_url, "MigrateMate", 1)
-        for job in mm_jobs:
-            if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="MigrateMate"):
-                added_count += 1
-        print(f"        -> Found {len(mm_jobs)} on MM")
-        
-        for query in search_queries:
-            time.sleep(2)
-            print(f"[SCOUT] Target: HTTP Fetching '{query}'...")
-            query_encoded = urllib.parse.quote(query)
+        async with async_playwright() as p:
+            print("[SCOUT] Launching headless Playwright browser...")
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page = await context.new_page()
 
-            # Target 2: Handshake
-            print("[SCOUT] HTTP Fetching Handshake...")
-            hs_url = f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT'
-            hs_jobs = fetch_and_extract_jobs(hs_url, "Handshake", 2)
-            
-            for job in hs_jobs:
-                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
+            # Target 1: MigrateMate
+            print("[SCOUT] Headless Fetching MigrateMate...")
+            mm_url = "https://migratemate.co/jobs"
+            mm_jobs = await fetch_and_extract_jobs(page, mm_url, "MigrateMate", 1)
+            for job in mm_jobs:
+                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="MigrateMate"):
                     added_count += 1
-            print(f"        -> Found {len(hs_jobs)} on HS")
+            print(f"        -> Found {len(mm_jobs)} on MM")
+            
+            for query in search_queries:
+                print(f"[SCOUT] Target: Headless Fetching '{query}'...")
+                query_encoded = urllib.parse.quote(query)
 
+                # Target 2: Handshake
+                print("[SCOUT] Headless Fetching Handshake...")
+                hs_url = f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT'
+                hs_jobs = await fetch_and_extract_jobs(page, hs_url, "Handshake", 2)
+                
+                for job in hs_jobs:
+                    if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
+                        added_count += 1
+                print(f"        -> Found {len(hs_jobs)} on HS")
+
+            await browser.close()
     except Exception as e:
-        print(f"[SCOUT] Critical HTTP error during scout loop: {e}")
+        print(f"[SCOUT] Critical Playwright error during scout loop: {e}")
         raise e
 
     if added_count == 0:

@@ -405,6 +405,25 @@ def delegate_to_mac_node(job_id: str, job_url: str, analysis: dict):
     to a JSON payload file. The Mac Execution Node will pull this payload to execute 
     natively via Playwright.
     """
+    # ─── STRICT PAYLOAD VALIDATION ───────────────────────────────────────────
+    if not job_id or not str(job_id).strip():
+        print(f"[GATEWAY] ❌ ERROR: Validation Failed. Missing job_id.")
+        return None
+    if not job_url or not str(job_url).startswith("http"):
+        print(f"[GATEWAY] ❌ ERROR: Validation Failed. Invalid job_url: {job_url}")
+        return None
+    
+    cl = analysis.get("generated_cover_letter", "")
+    qa = analysis.get("qa_answers", {})
+    
+    if not isinstance(cl, str):
+        print(f"[GATEWAY] ❌ ERROR: Validation Failed. Cover letter is not a string.")
+        return None
+    if not isinstance(qa, dict):
+        print(f"[GATEWAY] ❌ ERROR: Validation Failed. QA answers must be a dictionary.")
+        return None
+    # ─────────────────────────────────────────────────────────────────────────
+    
     payload_dir = Path("./execution_payloads")
     payload_dir.mkdir(exist_ok=True)
     
