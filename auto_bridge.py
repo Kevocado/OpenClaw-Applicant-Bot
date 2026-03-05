@@ -1,30 +1,33 @@
 import asyncio
 import os
 import sys
-import json
-import traceback
 import nodriver as uc
 from queue_manager import JobQueue
 from omni_scout import run_scout
-from apply_agent import run_apply, load_knowledge_base, init_gemini, EXIT_SUCCESS, EXIT_LOW_SCORE, EXIT_HIGH_TIER_PAUSED, EXIT_FAILURE
-
-USER_DATA_DIR = "/Users/sigey/Documents/Projects/OpenClaw Resume Bot/user_data_dir"
+from apply_agent import run_apply, load_knowledge_base, init_gemini
 
 async def main():
-    print("🚀 Starting OpenClaw Orchestrator (Single Browser Sequence)...")
+    print("🚀 Starting OpenClaw Orchestrator (Single-Tab Sequential Execution)...")
     queue = JobQueue()
     
-    # Initialize the single live browser instance
+    # Build an absolute path to a local sandboxed folder
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    BOT_PROFILE_DIR = os.path.join(PROJECT_ROOT, "bot_chrome_profile")
+    
+    # Ensure the directory exists
+    os.makedirs(BOT_PROFILE_DIR, exist_ok=True)
+    
     has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
     headless_mode = not has_display
     
-    print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={USER_DATA_DIR})")
-    browser = await uc.start(
-        headless=headless_mode,
-        user_data_dir=USER_DATA_DIR,
-        no_sandbox=True,
-        browser_args=[
-            '--profile-directory=Profile 3',
+    print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={BOT_PROFILE_DIR})")
+    
+    # Optional: explicitly point to Chrome for Testing if installed
+    browser_kwargs = {
+        "headless": headless_mode,
+        "user_data_dir": BOT_PROFILE_DIR,
+        "no_sandbox": True,
+        "browser_args": [
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
@@ -32,85 +35,62 @@ async def main():
             '--disable-session-crashed-bubble',
             '--enforce-webrtc-ip-handling-policy=default_public_interface_only'
         ]
-    )
+    }
+    
+    chrome_testing_path = "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+    if os.path.exists(chrome_testing_path):
+        print(f"[BROWSER] Using explicit Google Chrome for Testing at: {chrome_testing_path}")
+        browser_kwargs["browser_executable_path"] = chrome_testing_path
+        
+    # Force the browser to ONLY use this isolated directory
+    browser = await uc.start(**browser_kwargs)
 
     try:
-        # Phase 1: Scout using the live browser
-        # Wait a moment before beginning
         await asyncio.sleep(2)
-        print("\n--- PHASE 1: SCOUTING ---")
-        
-        # Grab the persistent main tab to prevent Focus Stealing
-        main_tab = browser.tabs[0] if browser.tabs else await browser.get("about:blank")
-        
-        added_count = await run_scout(main_tab, queue)
-        print(f"✅ Scout Phase Complete. Added {added_count} new unique jobs.\n")
-
-        # Phase 2: Apply using the SAME live browser
-        print("--- PHASE 2: APPLYING ---")
-        pending_jobs = queue.get_pending_jobs()
-        
-        if not pending_jobs:
-            print("No pending jobs to apply to. Shutting down gracefully.")
-            return
-
-        print(f"Found {len(pending_jobs)} pending jobs in the queue.")
-        
-        # --- GRAND TEST FILTER ---
-        test_jobs = {}
-        li_found, hs_found = False, False
-        
-        for j_id, job in pending_jobs.items():
-            if not li_found and "linkedin.com" in job['url']:
-                test_jobs[j_id] = job
-                li_found = True
-            elif not hs_found and "joinhandshake.com" in job['url']:
-                test_jobs[j_id] = job
-                hs_found = True
-                
-            if li_found and hs_found:
-                break # We have our two targets!
-        # -------------------------
-
-        print(f"\n[BRIDGE] Initiating Grand Test on {len(test_jobs)} specific jobs.")
+        print("\n[BRIDGE] Booting Master Browser Orchestrator...")
         
         # Load KB & Init Gemini once for the whole run
         kb = load_knowledge_base()
         client = init_gemini()
         
-        # Using the main_tab approach avoids new windows and WebSocket drops
-
-        for job_id, job_data in test_jobs.items():
-            print(f"\n[ORCHESTRATOR] Processing Job: {job_data['company']} - {job_data['title']}")
+        main_tab = browser.tabs[0] if browser.tabs else await browser.get("about:blank")
+        
+        print("[BRIDGE] Launching Continuous Background Pipeline...")
+        print("[BRIDGE] You may now move this window to another Desktop Space.")
+        
+        while True:
             try:
-                # Pass the main_tab straight to the applicator
-                exit_code = await run_apply(main_tab, job_data['url'], client, kb)
+                print(f"\n[{'='*60}]\n[BRIDGE] Phase 1: Scouting New Roles\n")
+                await run_scout(main_tab, queue)
                 
-                if exit_code == EXIT_SUCCESS:
-                    queue.update_status(job_id, "APPLIED", notes="Successfully applied.")
-                elif exit_code == EXIT_LOW_SCORE:
-                    queue.update_status(job_id, "FAILED", notes="Skipped: Low Match Score.")
-                elif exit_code == EXIT_HIGH_TIER_PAUSED:
-                    queue.update_status(job_id, "PENDING", notes="Paused for manual review (High Tier).")
-                else:
-                    queue.update_status(job_id, "SOFT_FAIL", notes=f"Failed cleanly with EXIT_FAILURE code.")
-                    
+                print(f"\n[{'='*60}]\n[BRIDGE] Phase 2: Processing Backlog\n")
+                await run_apply(browser, main_tab, queue, client, kb)
+                
+                print("\n[BRIDGE] Full cycle complete. System resting for 30 minutes to emulate human pacing...\n")
+                await main_tab.get("about:blank")
+                await asyncio.sleep(1800)  # Sleep 30 mins between major indexing sweeps
+                
             except Exception as e:
                 error_msg = str(e)
-                print(f"[ORCHESTRATOR] Exception caught for {job_id}: {error_msg}")
-                traceback.print_exc()
+                print(f"\n[BRIDGE] ERROR during cycle: {error_msg}")
                 
-                # Hard Fail boundaries
-                if "Workday ATS Skipped" in error_msg:
-                    queue.update_status(job_id, "WORKDAY_SKIPPED", notes="ATS blacklisted due to account creation requirements.")
-                elif "LinkedIn indicates this job is no longer available" in error_msg:
-                    queue.update_status(job_id, "FAILED", notes="Job no longer available.")
-                else:
-                    queue.update_status(job_id, "SOFT_FAIL", notes=f"Exception caught: {error_msg}")
+                if "Login Wall" in error_msg:
+                    print(f"[BRIDGE] 🚨 CRITICAL: Session blocked by login wall or IP ban.")
+                    print(f"[BRIDGE] Halting execution completely to save resources and protect browser profile.")
+                    print(f"[BRIDGE] Please run `python3 login_helper.py` or check your cookies.")
+                    break  # Break out of the infinite loop gracefully
+                    
+                print(f"[BRIDGE] Recovering in 5 minutes before retry...\n")
+                try:
+                    await main_tab.get("about:blank")
+                except Exception:
+                    pass
+                await asyncio.sleep(300)  # Wait 5 minutes before retrying
+                continue
             
     finally:
         browser.stop()
-        print("\n🏁 Fully Automated Cycle Complete.")
+        print("\n🏁 Fully Automated Cycle Complete or Terminated.")
 
 if __name__ == "__main__":
     uc.loop().run_until_complete(main())

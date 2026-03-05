@@ -24,7 +24,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-USER_DATA_DIR = os.getenv("USER_DATA_DIR", "./user_data_dir")
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+USER_DATA_DIR = os.getenv("USER_DATA_DIR", os.path.join(PROJECT_ROOT, "bot_chrome_profile"))
 
 # Sites to log into — the script opens each one and waits for you to log in
 LOGIN_SITES = [
@@ -71,13 +72,20 @@ async def main():
     print("Your session cookies will be saved for automated nightly runs.")
     print()
 
-    browser = await uc.start(
-        user_data_dir=USER_DATA_DIR,
-        headless=False,
-        browser_args=[
+    browser_kwargs = {
+        "user_data_dir": USER_DATA_DIR,
+        "headless": False,
+        "browser_args": [
             "--window-size=1280,900",
+            "--remote-debugging-host=127.0.0.1",
         ],
-    )
+    }
+
+    mac_chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if sys.platform == "darwin" and os.path.exists(mac_chrome_path):
+        browser_kwargs["browser_executable_path"] = mac_chrome_path
+
+    browser = await uc.start(**browser_kwargs)
 
     for i, site in enumerate(LOGIN_SITES, 1):
         print(f"\n[{i}/{len(LOGIN_SITES)}] Opening {site['name']}...")

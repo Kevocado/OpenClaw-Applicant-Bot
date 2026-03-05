@@ -5,10 +5,6 @@ import nodriver as uc
 import urllib.parse
 import os
 import sys
-import nodriver as uc
-import urllib.parse
-import os
-import sys
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -30,10 +26,13 @@ except Exception as e:
     config = {}
 
 def generate_search_queries(base_roles, config):
-    # Bypass AI generation for now to ensure stable, exact-match queries
-    # and prevent it from searching crazy generalized terms.
-    print(f"[SCOUT] Using exact match target roles: {base_roles[:2]}")
-    return base_roles[:2]
+    print("[SCOUT] Using customized F-1 corporate queries")
+    return [
+        "Data Analyst Insurance",
+        "Business Analytics Manufacturing",
+        "Logistics Analyst",
+        "Healthcare Data"
+    ]
 
 search_queries = generate_search_queries(base_roles, config)
 
@@ -118,7 +117,6 @@ async def extract_jobs_from_dom(page, platform, priority):
             pass
             
     return unique_jobs[:10]
-    return unique_jobs[:10]
 
 async def run_scout(main_tab, queue: JobQueue):
     added_count = 0
@@ -134,7 +132,7 @@ async def run_scout(main_tab, queue: JobQueue):
         try:
             # Find and click the specific filter button
             filter_btn = await main_tab.select('button:contains("Apply Filters")')
-            await filter_btn.click()
+            await filter_btn.mouse_click()
             print("[SCOUT] Filters applied. Waiting for results...")
             
             # Give the network time to fetch the filtered jobs
@@ -152,51 +150,23 @@ async def run_scout(main_tab, queue: JobQueue):
             print(f"[SCOUT] Target: Scouring for '{query}'...")
             query_encoded = urllib.parse.quote(query)
 
-            # Target 2: Handshake
+            # Target 2: Handshake (Appended options for Sponsorship)
             print("[SCOUT] Sourcing from Handshake...")
-            await main_tab.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}')
+            await main_tab.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT')
             hs_jobs = await extract_jobs_from_dom(main_tab, "Handshake", 2)
             for job in hs_jobs:
                 if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
                     added_count += 1
             print(f"        -> Found {len(hs_jobs)} on HS")
 
-            # Target 3: LinkedIn (No Session Cookie = Public Safe Scraping)
-            print("[SCOUT] Searching LinkedIn...")
-            await main_tab.get(f'https://www.linkedin.com/jobs/search/?keywords={query_encoded}')
-            li_jobs = await extract_jobs_from_dom(main_tab, "LinkedIn", 3)
-            for job in li_jobs:
-                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="LinkedIn"):
-                    added_count += 1
-            print(f"        -> Found {len(li_jobs)} on LI")
-
     except Exception as e:
         print(f"[SCOUT] Critical browser error during scout loop: {e}")
-    
+        raise e  # Propagate error up to trigger standby
+
+    if added_count == 0:
+        print("[SCOUT] CRITICAL WARNING: 0 jobs were added to the queue during this cycle.")
+        print("[SCOUT] This usually indicates the browser is blocked by a login wall, CAPTCHA, or the DOM failed to load.")
+        raise Exception("Login Wall or Page Load Failure Detected (0 jobs scraped)")
+
     print(f"\n[SCOUT] Total new unique jobs added to queue: {added_count}")
     return added_count
-
-async def main():
-    # Keep local testable version just in case
-    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
-    headless_mode = False
-    browser = await uc.start(
-        headless=headless_mode,
-        user_data_dir=USER_DATA_DIR,
-        no_sandbox=True,
-        browser_args=[
-            '--profile-directory=Profile 3',
-            '--disable-dev-shm-usage',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-setuid-sandbox',
-            '--disable-session-crashed-bubble',
-            '--enforce-webrtc-ip-handling-policy=default_public_interface_only'
-        ]
-    )
-    queue = JobQueue()
-    await run_scout(browser, queue)
-    browser.stop()
-
-if __name__ == '__main__':
-    uc.loop().run_until_complete(main())

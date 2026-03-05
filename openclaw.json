@@ -109,6 +109,9 @@
         },
         "exec": {
           "ask": "always"
+        },
+        "fs": {
+          "workspaceOnly": true
         }
       },
       "sandbox": {

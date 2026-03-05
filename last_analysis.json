@@ -1,17 +1,19 @@
 {
-  "Company": "Longevity AI",
-  "Role": "Brand & Design Summer Intern",
+  "Company": "Xpansiv",
+  "Role": "Summer Internship",
   "ATS_System": "LinkedIn",
   "visa_eligible": true,
   "Visa_Required": "No",
   "company_tier": "Standard",
   "Target_Keywords": [
-    "AI tools",
-    "branding",
-    "visual storytelling",
-    "content strategy",
-    "startups",
-    "Python"
+    "Data & Analytics",
+    "Python",
+    "Excel",
+    "Tableau",
+    "Machine Learning",
+    "Business Intelligence",
+    "Research",
+    "Analysis"
   ],
-  "Match_Score": 2
+  "Match_Score": 9
 }

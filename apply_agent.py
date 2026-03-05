@@ -30,6 +30,7 @@ EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_HIGH_TIER_PAUSED = 2  # Signals n8n to route to Telegram for approval
 EXIT_LOW_SCORE = 3         # Signals n8n to auto-reject application
+EXIT_FAILED_PRESCREEN = 4  # Signals n8n that the LLM Bouncer rejected it
 
 # DataImpulse Residential Proxy (Removed from defaults to use native Mac Residential Wi-Fi)
 # PROXY_SERVER = "http://gw.dataimpulse.com:823"
@@ -92,6 +93,50 @@ def sanitize_jd(raw_text: str) -> str:
     # Remove excessive whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+
+# ─── LLM Bouncer ─────────────────────────────────────────────────────────────
+
+async def run_llm_bouncer(jd_text: str, client: genai.Client) -> dict:
+    """Fast prescreen to protect API tokens from impossible applications."""
+    bouncer_prompt = f"""
+    Analyze this Job Description:
+    {jd_text}
+    
+    The applicant is an MSBA student requiring F-1 CPT/OPT sponsorship for Summer 2026. 
+    The absolute minimum acceptable salary is $60,000.
+    
+    Perform a strict gatekeeping check based on these three rules:
+    
+    1. SALARY: If the text explicitly states a salary below $60,000, reject it. If the salary is NOT explicitly listed, assume it pays well and DO NOT reject it for this reason.
+    2. VISA/SPONSORSHIP & INDUSTRY: STRICTLY REJECT startups, boutique firms, or descriptions mentioning "US Citizenship", "Permanent Residency/Green Card required" or "We do not provide sponsorship". 
+    3. TARGET SECTORS: Automatically APPROVE and prioritize mid-to-large corporations in the logistics, finance, and healthcare sectors.
+    
+    Return ONLY valid JSON with no markdown formatting:
+    {{
+        "proceed": true or false,
+        "rejection_reason": "Provide a 1-sentence reason only if proceed is false. Otherwise leave blank."
+    }}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=bouncer_prompt,
+            config=genai.types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
+            )
+        )
+        clean_json = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_json)
+    except json.JSONDecodeError as e:
+        print(f"[BOUNCER] JSON parse error: {e}. Defaulting to REJECT (safe fail).")
+        return {"proceed": False, "rejection_reason": "Bouncer parse error — malformed LLM response"}
+    except Exception as e:
+        print(f"[BOUNCER] Network/API error running prescreen: {e}")
+        # On network error, default to PROCEED (retry later) rather than blocking
+        return {"proceed": True, "rejection_reason": ""}
 
 
 # ─── Gemini Integration ──────────────────────────────────────────────────────
@@ -353,21 +398,41 @@ async def scrape_job_description(page) -> str:
     return ""
 
 
-async def fill_application_form(page, analysis: dict, client: genai.Client, kb: dict):
+async def get_execution_context(browser, main_tab):
     """
-    Smart Application Engine: Extracts the DOM structure into a JSON schema, sends it 
-    to Gemini to determine how to fill each field based on the application rules, 
-    and uses a native React bypass to inject the answers.
+    Checks if the ATS form is embedded in an iframe. 
+    Returns the iframe target if found, otherwise returns the main tab.
     """
-    print("[FORM] Extracting actual Form Schema from DOM...")
-    
-    # 1. Inject DOM extraction JS
+    try:
+        # 1. Look for known ATS iframe signatures
+        iframe_element = await main_tab.select('iframe[src*="greenhouse.io"], iframe[src*="lever.co"]', timeout=3)
+        
+        if iframe_element and iframe_element.frame_id:
+            print(f"[APPLY] Detected Embedded ATS iFrame (Frame ID: {iframe_element.frame_id}). Switching context...")
+            
+            # 2. Search nodriver's internal target list for the matching frame ID
+            # Use next() with default=None to prevent StopIteration crash
+            iframe_target = next((x for x in browser.targets if str(x.target.target_id) == str(iframe_element.frame_id)), None)
+            
+            if iframe_target:
+                print(f"[APPLY] Successfully switched to iframe context.")
+                return iframe_target
+            else:
+                print(f"[APPLY] WARNING: Iframe element found but target not in browser.targets. Falling back to main tab.")
+            
+    except Exception as e:
+        # No iframe found, standard page
+        print(f"[APPLY] No iframe detected or error during iframe lookup: {e}")
+        pass 
+        
+    return main_tab
+
+async def extract_form_schema(page):
     schema_js = """
     (() => {
         const fields = [];
         const elements = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select');
         elements.forEach((el, idx) => {
-            // Guarantee a unique selector by setting a custom data attribute
             const uid = `clawd_${idx}`;
             el.setAttribute('data-clawd-id', uid);
             const uniqueSelector = `[data-clawd-id="${uid}"]`;
@@ -377,44 +442,31 @@ async def fill_application_form(page, analysis: dict, client: genai.Client, kb: 
                 const label = document.querySelector(`label[for="${el.id}"]`);
                 if (label) labelText = label.innerText;
             }
-            
             let parentLabel = el.closest('label');
             if (!labelText && parentLabel) {
                 labelText = parentLabel.innerText;
             }
-
-            // Clean up label text
             labelText = (labelText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '').trim();
 
             let options = [];
             if (el.tagName.toLowerCase() === 'select') {
                 options = Array.from(el.querySelectorAll('option')).map(o => o.innerText.trim()).filter(t => t);
             }
-
-            fields.push({
-                selector: uniqueSelector,
-                tag: el.tagName.toLowerCase(),
-                type: el.type || '',
-                label: labelText,
-                options: options
-            });
+            fields.push({ selector: uniqueSelector, tag: el.tagName.toLowerCase(), type: el.type || '', label: labelText, options: options });
         });
         return JSON.stringify(fields);
     })()
     """
     try:
         raw_schema = await page.evaluate(schema_js)
-        form_schema = json.loads(raw_schema)
+        form_schema = __import__('json').loads(raw_schema)
         print(f"[FORM] Extracted {len(form_schema)} input fields.")
+        return form_schema
     except Exception as e:
         print(f"[FORM] ERROR extracting form schema: {e}")
-        return False
-        
-    if not form_schema:
-        print("[FORM] No input fields found on this page. Form might be pre-filled or handled differently.")
-        return True
+        return None
 
-    # 2. Query Gemini for Field Values
+async def get_gemini_answers(form_schema, kb: dict, client):
     print("[FORM] Asking Gemini to map Form Schema against Application Rules...")
     system_prompt = f"""You are an advanced AI application form filler.
 You will receive a JSON array representing the fields on an application form.
@@ -435,39 +487,30 @@ INSTRUCTIONS:
 5. Provide your answers as a JSON map where keys are the exact CSS `selector` from the schema, and values are the string answers to inject.
 6. RETURN ONLY VALID JSON. No markdown, no exposition.
 """
-    user_prompt = f"FORM SCHEMA:\n{json.dumps(form_schema, indent=2)}"
-    
     try:
+        # Generate the JSON string FIRST, then inject into prompt
+        form_schema_json = __import__('json').dumps(form_schema, indent=2)
+        user_prompt = f"FORM SCHEMA:\n{form_schema_json}"
+        
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[system_prompt, user_prompt],
-            config=genai.types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-            ),
+            config=__import__('google').generativeai.types.GenerateContentConfig(temperature=0.1, response_mime_type="application/json"),
         )
-        llm_answers = json.loads(response.text)
+        llm_answers = __import__('json').loads(response.text.replace("```json", "").replace("```", "").strip())
         print(f"[FORM] Gemini returned answers for {len(llm_answers)} fields.")
+        return llm_answers
     except Exception as e:
         print(f"[FORM] ERROR querying Gemini for form mapping: {e}")
-        print(f"[FORM] Raw Response: {getattr(response, 'text', 'Unknown')}")
-        return False
+        return None
 
-    if not llm_answers:
-        print("[FORM] Gemini returned empty form mapping.")
-        return True
-
-    # 3. Inject Values using Native React Bypass
+async def inject_answers(page, llm_answers):
     print("[FORM] Injecting answers into DOM using Native Setters...")
-    
-    # We must properly escape the JSON string for use in our JS script block
-    safely_encoded_answers = json.dumps(llm_answers).replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
-    
+    safely_encoded_answers = __import__('json').dumps(llm_answers).replace('\\\\', '\\\\\\\\').replace('`', '\\\\`').replace('$', '\\\\$')
     injection_js = f"""
     (() => {{
         const actions = JSON.parse(`{safely_encoded_answers}`);
         let successCount = 0;
-        
         const nativeInputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
         const nativeTextAreaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
         const nativeSelectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")?.set;
@@ -475,52 +518,118 @@ INSTRUCTIONS:
         for (const [selector, value] of Object.entries(actions)) {{
             const el = document.querySelector(selector);
             if (!el) continue;
-            
             const tag = el.tagName.toLowerCase();
             let setter = null;
-            
             if (tag === 'input' && nativeInputSetter) setter = nativeInputSetter;
             else if (tag === 'textarea' && nativeTextAreaSetter) setter = nativeTextAreaSetter;
             else if (tag === 'select' && nativeSelectSetter) setter = nativeSelectSetter;
             
-            if (setter) {{
-                setter.call(el, value);
-            }} else {{
-                el.value = value;
-            }}
-            
+            if (setter) {{ setter.call(el, value); }} else {{ el.value = value; }}
             el.dispatchEvent(new Event('input', {{ bubbles: true }}));
             el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            
             successCount++;
         }}
         return successCount;
     }})()
     """
-    
     try:
         fields_filled = await page.evaluate(injection_js)
-        print(f"[FORM] Successfully injected values into {fields_filled} fields.")
+        print(f"[FORM] Successfully injected {fields_filled} fields.")
+        return fields_filled
     except Exception as e:
         print(f"[FORM] ERROR executing injection JS: {e}")
+        return 0
 
-    # Add a small delay for form validation to catch up
-    await asyncio.sleep(1)
+async def handle_linkedin_easy_apply(main_tab, job_id, queue, client, kb):
+    max_steps = 10
+    current_step = 0
+    while current_step < max_steps:
+        current_step += 1
+        print(f"\\n[APPLY] --- LinkedIn Modal Step {current_step} ---")
+        await asyncio.sleep(1.5)
+        form_schema = await extract_form_schema(main_tab)
+        if form_schema:
+            ai_mapped_answers = await get_gemini_answers(form_schema, kb, client)
+            if ai_mapped_answers:
+                await inject_answers(main_tab, ai_mapped_answers)
+                print("[APPLY] Injected AI answers via React bypass.")
+        
+        await asyncio.sleep(0.8)
+        try:
+            primary_btn = await main_tab.select('button.artdeco-button--primary', timeout=5)
+            btn_text = await primary_btn.get_text()
+            btn_text = btn_text.strip().lower()
+            print(f"[APPLY] Found primary action button: '{btn_text}'")
+            await primary_btn.mouse_click()
+            print("[APPLY] Executed physical CDP click.")
+        except Exception:
+            print("[ERROR] Could not find a primary action button. Modal may have crashed.")
+            queue.update_status(job_id, "FAILED", notes="Modal button timeout")
+            return EXIT_FAILURE
+            
+        await asyncio.sleep(2.0)
+        try:
+            error_element = await main_tab.select('.artdeco-inline-feedback--error, [aria-invalid="true"]', timeout=1)
+            print("[ERROR] React Validation Blocked Submission! Missing or invalid field.")
+            queue.update_status(job_id, "FAILED", notes="LinkedIn form validation error")
+            try:
+                dismiss_btn = await main_tab.select('button[aria-label="Dismiss"]')
+                await dismiss_btn.mouse_click()
+                confirm_discard = await main_tab.select('button[data-control-name="discard_application_confirm_btn"]')
+                await confirm_discard.mouse_click()
+            except:
+                pass
+            return EXIT_FAILURE
+        except Exception:
+            pass
+            
+        if "submit" in btn_text or "apply" in btn_text:
+            print("[SUCCESS] Application Submitted Successfully!")
+            queue.update_status(job_id, "APPLIED", notes="Easy Apply completed successfully.")
+            await asyncio.sleep(2)
+            try:
+                done_btn = await main_tab.select('button.artdeco-button--primary', timeout=2)
+                await done_btn.mouse_click()
+            except:
+                pass
+            return EXIT_SUCCESS
+        elif "next" in btn_text or "continue" in btn_text:
+            print(f"[APPLY] Progressing to next modal step ('{btn_text}')...")
+            continue
+        else:
+            print(f"[ERROR] Unknown modal state or button Action: '{btn_text}'")
+            queue.update_status(job_id, "FAILED", notes=f"Unknown Easy Apply modal progression state: {btn_text}")
+            return EXIT_FAILURE
+
+    print(f"[ERROR] Exceeded max modal steps ({max_steps}).")
+    queue.update_status(job_id, "FAILED", notes="Exceeded max modal steps")
+    return EXIT_FAILURE
+
+
+async def fill_application_form(browser, page, analysis: dict, client, kb: dict):
+    print("[FORM] Extracting actual Form Schema from DOM...")
+    active_context = await get_execution_context(browser, page)
     
-    # Post-Submit DOM Validation
+    form_schema = await extract_form_schema(active_context)
+    if not form_schema:
+        print("[FORM] No input fields found on this page.")
+        return True
+
+    llm_answers = await get_gemini_answers(form_schema, kb, client)
+    if not llm_answers:
+        print("[FORM] Gemini returned empty form mapping.")
+        return True
+
+    await inject_answers(active_context, llm_answers)
+
+    await asyncio.sleep(1)
     print("[FORM] Checking for validation errors...")
     await asyncio.sleep(3)
     
-    error_selectors = [
-        ".error-message", 
-        "[aria-invalid='true']", 
-        ".has-error",
-        ".field-error"
-    ]
-    
+    error_selectors = [".error-message", "[aria-invalid='true']", ".has-error", ".field-error"]
     for err_sel in error_selectors:
         try:
-            err_elems = await page.query_selector_all(err_sel)
+            err_elems = await active_context.query_selector_all(err_sel)
             if err_elems and len(err_elems) > 0:
                 print(f"[FORM] ERROR: Validation errors found via {err_sel}. Form submission incomplete.")
                 return False
@@ -528,6 +637,21 @@ INSTRUCTIONS:
             pass
 
     print("[FORM] Form fill check complete with no obvious errors.")
+    print("[FORM] Executing CDP Mouse Click Override (Datadome Safe)...")
+    await asyncio.sleep(0.8)
+    try:
+        submit_btn = await active_context.select('button[type="submit"], input[type="submit"]', timeout=3)
+        await submit_btn.mouse_click()
+        print("[FORM] Natively clicked Submit button successfully via CDP.")
+    except Exception as e:
+        print(f"[FORM] Warning: Could not find strict submit via CDP. {e}")
+        try:
+            eval_click = """(() => { let btn = document.querySelector('button[type="submit"]') || Array.from(document.querySelectorAll('button')).find(el => el.textContent.trim().toLowerCase().includes('submit') || el.textContent.trim().toLowerCase().includes('apply')); if (btn) { btn.click(); return true; } return false; })()"""
+            success = await active_context.evaluate(eval_click)
+            if success:
+                print("[FORM] Clicked using JS fallback.")
+        except Exception:
+            pass
     return True
 
 
@@ -593,7 +717,7 @@ Return ONLY valid JSON. No markdown.
     return {"generated_cover_letter": "", "qa_answers": {}}
 
 
-async def apply_to_job_internal(page, browser, job_url: str, client: genai.Client, kb: dict) -> int:
+async def apply_to_job_internal(page, browser, job_url: str, job_id: str, queue, client: genai.Client, kb: dict) -> int:
     """
     Main application flow for a single job inside an established tab.
     """
@@ -605,8 +729,11 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         await page.get(job_url)
-        print("[JOB] Waiting for page to fully render...")
-        await asyncio.sleep(random.uniform(5.0, 8.5))
+        print("[JOB] Event-Driven: Waiting for body to render...")
+        try:
+            await page.select('body', timeout=15)
+        except Exception:
+            print("[JOB] Timeout waiting for body. Proceeding anyway.")
         
         try:
             current_url = await page.evaluate("window.location.href")
@@ -630,8 +757,11 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
         return EXIT_FAILURE
 
     # Wait for page to fully load (LinkedIn is JS-heavy)
-    print("[JOB] Waiting for page to load...")
-    await asyncio.sleep(8)
+    print("[JOB] Event-Driven: Waiting for JD to load...")
+    try:
+        await page.select('h1, .jobs-description__content, [data-testid="job-description"], article, main', timeout=15)
+    except Exception:
+        print("[JOB] Timeout waiting for JD selector. Proceeding anyway.")
 
     # ─── Failsafe: Check if Job is Still Active ──────────────────────────────
     try:
@@ -661,6 +791,18 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
     # Sanitize JD to prevent prompt injection
     jd_text = sanitize_jd(jd_text)
     print(f"[JOB] JD sanitized ({len(jd_text)} chars)")
+
+    # ─── The LLM Bouncer ─────────────────────────────────────────────────────
+    print("[JOB] Running LLM Bouncer prescreen...")
+    bouncer_verdict = await run_llm_bouncer(jd_text, client)
+    if not bouncer_verdict.get("proceed", True):
+        reason = bouncer_verdict.get('rejection_reason', 'Failed prescreen')
+        print(f"[BOUNCER] Skipped: {reason}")
+        await take_screenshot(page, "failed_prescreen")
+        return EXIT_FAILED_PRESCREEN
+    else:
+        print("[BOUNCER] Passed! Proceeding to full analysis.")
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Step 2: Analyze with Gemini
     print("[JOB] Analyzing job with Gemini...")
@@ -706,7 +848,17 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
         return EXIT_FAILURE
 
     if not external_url:
-        print("[JOB] WARNING: Could not find external Apply link. It may be an Easy Apply role or requires login.")
+        print("[JOB] WARNING: Could not find external Apply link. Checking for Easy Apply...")
+        try:
+            easy_apply_btn = await page.select('.jobs-apply-button--top-card button, button.jobs-apply-button', timeout=3)
+            btn_text = await easy_apply_btn.get_text()
+            if "apply" in btn_text.lower():
+                print("[JOB] Found Easy Apply button. Launching modal loop...")
+                await easy_apply_btn.mouse_click()
+                return await handle_linkedin_easy_apply(page, job_id, queue, client, kb)
+        except Exception:
+            pass
+            
         await take_screenshot(page, "no_external_link")
         return EXIT_FAILURE
 
@@ -716,8 +868,11 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
     # We navigate to the ATS link in the SAME tab so it doesn't open thousands of windows.
     await page.get(external_url)
     
-    print("[JOB] Waiting for ATS page to load...")
-    await asyncio.sleep(8)
+    print("[JOB] Event-Driven: Waiting for ATS form to load...")
+    try:
+        await page.select('form, input, textarea, select', timeout=15)
+    except Exception:
+        print("[JOB] Timeout waiting for ATS form fields. Proceeding anyway.")
     
     try:
         current_ats_url = await page.evaluate("window.location.href")
@@ -751,7 +906,7 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
     analysis["qa_answers"] = materials["qa_answers"]
     
     # Step 9: Smart Adaptive Form Filling
-    form_success = await fill_application_form(page, analysis, client, kb)
+    form_success = await fill_application_form(browser, page, analysis, client, kb)
     if not form_success:
         print("[JOB] ERROR: Failed cleanly during form fill phase.")
         return EXIT_FAILURE
@@ -760,34 +915,47 @@ async def apply_to_job_internal(page, browser, job_url: str, client: genai.Clien
     return EXIT_SUCCESS
 
 
-async def run_apply(main_tab, job_url: str, client: genai.Client, kb: dict) -> int:
-    """
-    Callable entry point for orchestrators. 
-    Enforces strict state isolation by keeping all DOM and memory inside a transient tab block.
-    """
-    await main_tab.get(job_url)
-    
-    # Store global or module-level payload state references here if they exist, 
-    # to explicitly nullify them later. But normally we keep them in local scope.
-    local_analysis_ref = None
-    
-    try:
-        # Pass the transient page down to the internal function
-        return await apply_to_job_internal(main_tab, None, job_url, client, kb)
-    except Exception as e:
-        print(f"[JOB] Fatal error processing {job_url}: {e}")
-        return EXIT_FAILURE
-    finally:
-        # strict cleanup: navigate to about:blank so variable scope and weird DOM state bleeds are prevented
-        if main_tab:
-            await main_tab.get("about:blank")
+async def run_apply(browser, main_tab, queue, client: genai.Client, kb: dict):
+    pending_jobs = queue.get_pending_jobs()
+    if not pending_jobs:
+        print("[APPLY] No pending jobs. Skipping apply phase.")
+        return
+
+    for job_id, job_data in pending_jobs.items():
+        print(f"\\n[{'='*60}]\\n[ORCHESTRATOR] Processing Job: {job_data['company']} - {job_data['title']}")
+        try:
+            exit_code = await apply_to_job_internal(main_tab, browser, job_data['url'], job_id, queue, client, kb)
             
-        # Explicitly zero-out / delete variables to absolutely prevent cross-application bleed
-        # Python's GC will handle the rest, but this fulfills the strict hygiene requirement
-        del local_analysis_ref
-        # Random sleep jitter to prevent the "Tab Velocity" IP Flag
-        jitter = random.uniform(3.5, 7.2)
-        print(f"[{'='*60}]\n[ORCHESTRATOR] Tab loaded about:blank. State purged. Jittering for {jitter:.2f}s before next cycle...\n")
-        await asyncio.sleep(jitter)
-
-
+            # Trust the exit_code returned from apply_to_job_internal.
+            # Do NOT re-fetch status — handle_linkedin_easy_apply already updated it.
+            if exit_code == EXIT_SUCCESS:
+                queue.update_status(job_id, "APPLIED", notes="Successfully applied.")
+            elif exit_code == EXIT_LOW_SCORE:
+                queue.update_status(job_id, "FAILED", notes="Skipped: Low Match Score.")
+            elif exit_code == EXIT_HIGH_TIER_PAUSED:
+                queue.update_status(job_id, "PENDING", notes="Paused for manual review (High Tier).")
+            elif exit_code == EXIT_FAILED_PRESCREEN:
+                queue.update_status(job_id, "FAILED_PRESCREEN", notes="Failed LLM Bouncer (Visa/Salary).")
+            else:
+                queue.update_status(job_id, "SOFT_FAIL", notes=f"Failed cleanly with EXIT_FAILURE code.")
+                    
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ORCHESTRATOR] Exception caught for {job_id}: {error_msg}")
+            
+            if "Workday ATS Skipped" in error_msg or "icims.com" in error_msg:
+                queue.update_status(job_id, "WORKDAY_SKIPPED", notes="ATS blacklisted.")
+            elif "no longer available" in error_msg.lower() or "off the market" in error_msg.lower():
+                queue.update_status(job_id, "FAILED", notes="Job no longer available.")
+            else:
+                queue.update_status(job_id, "SOFT_FAIL", notes=f"Exception caught: {error_msg}")
+        finally:
+            if main_tab:
+                try:
+                    await main_tab.get("about:blank")
+                except Exception as eval_err:
+                    print(f"[ORCHESTRATOR] Failed to navigate to about:blank on main_tab: {eval_err}")
+                    
+            jitter = random.uniform(3.5, 7.2)
+            print(f"[ORCHESTRATOR] Tab loaded about:blank. State purged. Jittering for {jitter:.2f}s before next job...\\n")
+            await asyncio.sleep(jitter)
