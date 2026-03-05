@@ -96,6 +96,22 @@ Return ONLY valid JSON. No markdown.
 # ──────────────────────────────────────────────────────────────────────────────
 PAYLOAD_DIR = Path("./execution_payloads")
 
+async def clear_overlays(page):
+    """Detects and closes common blocking overlays."""
+    overlays = [
+        "button[aria-label='Dismiss']", 
+        "button.artdeco-modal__dismiss", 
+        ".login-bg", # LinkedIn login wall
+        "button:has-text('Accept Cookies')"
+    ]
+    for selector in overlays:
+        try:
+            if await page.is_visible(selector, timeout=500):
+                await page.click(selector)
+                print(f"[MAC NODE] Cleared overlay: {selector}")
+        except:
+            pass
+
 async def process_payload(payload_path: Path):
     """
     Reads a dispatched payload and uses Playwright to execute DOM manipulation.
@@ -123,14 +139,16 @@ async def process_payload(payload_path: Path):
         from playwright.async_api import async_playwright
         
         async with async_playwright() as p:
-            print("[MAC NODE] Launching Chrome via Playwright...")
-            # We run headful (headless=False) on the Mac Node for maximum residential fidelity
-            browser = await p.chromium.launch(
+            print("[MAC NODE] Launching persistent Chrome via Playwright...")
+            # Create a folder in your project called 'user_data'
+            user_data_dir = os.path.abspath("./user_data")
+            
+            # Launch with a persistent context
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir,
                 headless=False,
-                args=['--disable-blink-features=AutomationControlled']
-            )
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                args=["--disable-blink-features=AutomationControlled"]
             )
             
             # Stealth evasion: scrub webdriver flags
@@ -140,10 +158,12 @@ async def process_payload(payload_path: Path):
                 });
             """)
             
-            page = await context.new_page()
+            page = context.pages[0] if context.pages else await context.new_page()
             print(f"[MAC NODE] Navigating to: {job_url}")
             await page.goto(job_url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(5)  # Let React Virtual DOM settle
+            
+            await clear_overlays(page)
             
             # Form schema extraction for debugging
             print("[MAC NODE] Extracting form schema...")
@@ -245,12 +265,15 @@ async def process_payload(payload_path: Path):
             await asyncio.sleep(4)
             print(f"[MAC NODE] Injection & Submission attempt completed. Did submit: {submitted}")
             
+            if not submitted:
+                raise Exception("Blocked by Overlay or Submit button not found")
+            
             # Take verification screenshot
             screenshot_path = SCREENSHOTS_DIR / f"success_{job_id}_{int(time.time())}.png"
             await page.screenshot(path=str(screenshot_path))
             print(f"[MAC NODE] Saved verification screenshot to {screenshot_path}")
             
-            await browser.close()
+            await context.close()
         
         # Execution successful. Clean up payload.
         print(f"[MAC NODE] ✅ Execution successful. Purging payload.")
