@@ -7,6 +7,10 @@ __pycache__/
 user_data_dir/
 auth_profile.zip
 
+# Execution node data
+execution_payloads/
+execution_screenshots/
+
 # Screenshots
 screenshots/*.png
 
