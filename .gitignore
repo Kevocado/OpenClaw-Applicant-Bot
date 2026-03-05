@@ -5,6 +5,8 @@ __pycache__/
 
 # Playwright
 user_data_dir/
+user_data/
+bot_session/
 auth_profile.zip
 
 # Execution node data

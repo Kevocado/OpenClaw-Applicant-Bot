@@ -140,15 +140,15 @@ async def process_payload(payload_path: Path):
         
         async with async_playwright() as p:
             print("[MAC NODE] Launching persistent Chrome via Playwright...")
-            # Create a folder in your project called 'user_data'
-            user_data_dir = os.path.abspath("./user_data")
+            # Create a folder in your project called 'bot_session'
+            user_data_dir = os.path.abspath("./bot_session")
             
             # Launch with a persistent context
             context = await p.chromium.launch_persistent_context(
                 user_data_dir,
                 headless=False,
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                args=["--disable-blink-features=AutomationControlled"]
+                args=["--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check"]
             )
             
             # Stealth evasion: scrub webdriver flags
