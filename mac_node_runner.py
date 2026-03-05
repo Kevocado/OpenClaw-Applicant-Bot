@@ -4,6 +4,7 @@ import time
 import asyncio
 from pathlib import Path
 import logging
+import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -189,26 +190,57 @@ async def process_payload(payload_path: Path):
             processing_path.rename(failed_path)
 
 
-async def poll_payload_directory():
+def pull_payloads_from_vps():
     """
-    Long-running daemon loop that monitors the Tailscale-synced payload directory.
+    Uses native SCP over the Tailscale interface to fetch execution payloads
+    from the Gateway VPS, and SSH to clean them up remotely.
     """
-    print("[MAC NODE] 🛡️ OpenClaw Execution Node Online.")
-    print(f"[MAC NODE] Polling directory for dispatched payloads: {PAYLOAD_DIR.absolute()}")
+    VPS_ADDRESS = "root@100.86.28.66"
+    REMOTE_PAYLOAD_DIR = "/root/OpenClaw-Applicant-Bot/execution_payloads/"
     
     PAYLOAD_DIR.mkdir(exist_ok=True)
     
+    try:
+        # SCP all JSON payloads
+        scp_cmd = f"scp -q {VPS_ADDRESS}:{REMOTE_PAYLOAD_DIR}*.json ./{PAYLOAD_DIR.name}/"
+        result = subprocess.run(scp_cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode == 0 or "No such file or directory" in result.stderr:
+            # Successfully pulled or nothing to pull. Clean up remote if we succeeded.
+            if result.returncode == 0:
+                ssh_cmd = f"ssh -q {VPS_ADDRESS} 'rm -f {REMOTE_PAYLOAD_DIR}*.json'"
+                subprocess.run(ssh_cmd, shell=True)
+        else:
+            print(f"[MAC NODE] SCP pull returned non-zero. stderr: {result.stderr.strip()}")
+            
+    except Exception as e:
+        print(f"[MAC NODE] Network error during SCP pull: {e}")
+
+async def poll_payload_directory():
+    """
+    Long-running daemon loop that fetches payloads over SSH,
+    reads them locally, executes with Playwright, and cleans up.
+    """
+    print("[MAC NODE] 🛡️ OpenClaw Execution Node Online.")
+    print(f"[MAC NODE] Polling VPS (100.86.28.66) for dispatched payloads...")
+    
+    PAYLOAD_DIR.mkdir(exist_ok=True)
+    SCREENSHOTS_DIR.mkdir(exist_ok=True)
+    
     while True:
         try:
-            # Find any pending JSON payloads that haven't failed
+            # 1. Fetch from Gateway
+            pull_payloads_from_vps()
+            
+            # 2. Find pending JSON payloads locally
             payloads = list(PAYLOAD_DIR.glob("job_payload_*.json"))
             
+            # 3. Process sequentially
             for payload in payloads:
-                # Process sequentially to avoid overlap detection
                 await process_payload(payload)
                 
             # Sleep briefly before polling again (low CPU impact)
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             
         except KeyboardInterrupt:
             print("\n[MAC NODE] Shutting down execution node gracefully...")
@@ -216,8 +248,6 @@ async def poll_payload_directory():
         except Exception as e:
             err_str = str(e)
             print(f"[MAC NODE] Poller error: {err_str}")
-            if "Tailscale" in err_str or "No such file or directory" in err_str:
-                print("[MAC NODE] Directory inaccessible. Checking Tailscale mount...")
             await asyncio.sleep(10)
 
 
