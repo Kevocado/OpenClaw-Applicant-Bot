@@ -17,8 +17,11 @@ async def main():
     # Ensure the directory exists
     os.makedirs(BOT_PROFILE_DIR, exist_ok=True)
     
-    has_display = os.getenv("DISPLAY") is not None or sys.platform == "darwin"
-    headless_mode = not has_display
+    # Check if we are physically on macOS or if a remote X11 DISPLAY is forwarded to us
+    has_display = sys.platform == "darwin" or os.getenv("DISPLAY") is not None
+    # [CRITICAL]: We must FORCE headless=False on the VPS so the bot can physically render windows
+    # to your local Mac via X11 so we can bypass anti-bot challenges!
+    headless_mode = False
     
     print(f"[BROWSER] Launching nodriver (headless={headless_mode}, profile={BOT_PROFILE_DIR})")
     
@@ -29,9 +32,12 @@ async def main():
         sys.exit(1)
         
     # Optional: explicitly point to Chrome for Testing if installed
+    # [VPS ROOT FIX]: nodriver requires explicit no_sandbox=True parameter to bypass its own internal root assertions
+    # In addition to passing the raw Chrome flags below.
     browser_kwargs = {
         "user_data_dir": BOT_PROFILE_DIR,
         "headless": headless_mode,
+        "no_sandbox": True,
         "browser_args": [
             '--no-sandbox',           # [CRITICAL]: Required for running as root on VPS
             '--disable-setuid-sandbox', # [CRITICAL]: Required for running as root on VPS
