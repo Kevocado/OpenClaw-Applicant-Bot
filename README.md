@@ -1,6 +1,6 @@
 # OpenClaw Applicant Bot
 
-An autonomous job application and tracking agent powered by **n8n**, **OpenClaw**, **nodriver** (undetected Chrome), and **Google Gemini Pro**.
+An autonomous job application and tracking agent powered by **n8n**, targeted Headless **Playwright**, and **Google Gemini Pro** via a distributed architecture.
 
 ## Architecture
 
@@ -9,21 +9,20 @@ An autonomous job application and tracking agent powered by **n8n**, **OpenClaw*
 │                    Contabo VPS (Ubuntu 24.04)                  │
 │                                                                │
 │  ┌──────────────┐    ┌─────────────────────────────────────┐  │
-│  │   n8n         │    │  OpenClaw (127.0.0.1:3000)          │  │
-│  │  (Docker)     │───▶│  token auth + exec approval         │  │
+│  │   n8n         │    │ Gateway (apply_agent.py)            │  │
+│  │  (Docker)     │───▶│ Generates job_payload_[ID].json     │  │
 │  │  Port 5678    │    └──────────────┬──────────────────────┘  │
 │  └──────┬───────┘                    │                         │
 │         │                            ▼                         │
 │  ┌──────┴───────┐    ┌─────────────────────────────────────┐  │
-│  │ Gmail + Sheets│    │ apply_agent.py                      │  │
-│  │ (Workflows)   │    │ nodriver + Gemini Pro                │  │
-│  └──────────────┘    │ + knowledge_base/ (3 files)          │  │
-│         │            └──────────────┬──────────────────────┘  │
+│  │ Gmail + Sheets│    │ Tailscale Network (100.x.x.x)       │  │
+│  │ (Workflows)   │    │ Secure payload delivery             │  │
+│  └──────────────┘    └──────────────┬──────────────────────┘  │
 │         │                           │                          │
 │         ▼                           ▼                          │
 │  ┌──────────────┐    ┌─────────────────────────────────────┐  │
-│  │ Google Sheets │    │ Telegram Bot                        │  │
-│  │ (Tracker)     │    │ (High-tier approvals)               │  │
+│  │ Google Sheets │    │ macOS Execution Node                │  │
+│  │ (Tracker)     │    │ mac_node_runner.py (Playwright)     │  │
 │  └──────────────┘    └─────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -50,7 +49,7 @@ An autonomous job application and tracking agent powered by **n8n**, **OpenClaw*
 
 - **Python 3.10+**
 - **Docker & Docker Compose**
-- **Google Chrome** (nodriver automates real Chrome)
+- **Playwright Chromium** (`playwright install chromium`)
 - **Accounts:** Google Cloud (OAuth), Gemini API, Telegram, LinkedIn, Handshake
 
 ## Quick Start
@@ -82,7 +81,6 @@ OpenClaw-Applicant-Bot/
 ├── README.md                    # This file
 ├── apply_agent.py               # Browser agent (nodriver + Gemini)
 ├── docker-compose.yml           # n8n container config
-├── openclaw.json                # Hardened OpenClaw config
 ├── n8n_email_parser.js          # n8n Code Node snippet
 ├── requirements.txt             # Python dependencies
 ├── .env.example                 # Environment variable template
@@ -103,7 +101,6 @@ OpenClaw-Applicant-Bot/
 | `N8N_BASIC_AUTH_USER` | n8n web UI username |
 | `N8N_BASIC_AUTH_PASSWORD` | n8n web UI password |
 | `N8N_WEBHOOK_URL` | Public URL for n8n webhooks |
-| `OPENCLAW_AUTH_TOKEN` | UUID token for OpenClaw API auth |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 | `USER_DATA_DIR` | Path to Chrome persistent profile |
