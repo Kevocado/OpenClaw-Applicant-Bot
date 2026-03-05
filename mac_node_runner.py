@@ -160,7 +160,7 @@ async def process_payload(payload_path: Path):
             
             page = context.pages[0] if context.pages else await context.new_page()
             print(f"[MAC NODE] Navigating to: {job_url}")
-            await page.goto(job_url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(job_url, wait_until="networkidle", timeout=60000)
             await asyncio.sleep(5)  # Let React Virtual DOM settle
             
             await clear_overlays(page)
