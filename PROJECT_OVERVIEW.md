@@ -7,74 +7,50 @@
 ## 1. Infrastructure & Hosting (The Foundation)
 
 - **Host:** Contabo Cloud VPS (€6.20/month — Ubuntu 24.04, 4 vCPU, 8GB RAM).
-- **Environment:** Docker installed to run n8n safely in a container.
-- **Security — OpenClaw:** Runs directly on the VPS, locked down via `openclaw.json`:
-  - Binds to **loopback only** (`127.0.0.1`) — not exposed to the internet.
-  - Requires **token authentication** for every request.
-  - Human-in-the-loop approval for `exec` tool (`"ask": "always"`).
-  - Risky tools (`nodes`, `canvas`, `llm_task`, `browser`, `computer`) explicitly denied.
+- **Execution Environment:** Bare-metal Python daemon (`auto_bridge.py`) running continuously in the background.
+- **System Interactions & Safety:** 
+  - `nodriver` is configured with `sandbox: False` to execute gracefully as `root` on the VPS container.
+  - SSH X11 Forwarding (`ssh -X`) is utilized to tunnel the Chrome graphical interface to the local Mac for manual `login_helper.py` setup.
+  - The internal `nodriver` connection timeout is patched (from 5 loops to 60 loops) to allow for remote X11 rendering latency over SSH.
 
 ---
 
 ## 2. The Intelligence Layer (The Brain)
 
-- **LLM:** Google Gemini Pro (via free API key).
-- **Knowledge Base:** Three local files (`knowledge_base/`) that Gemini reads to prevent hallucination:
-  - `honest_resume.txt` — Factual resume with honest WOW Payments framing.
-  - `cover_letter_templates.txt` — Master template with tone/length rules per industry.
-  - `interview_qa_matrix.txt` — Pre-validated answers for common application questions.
-- **Core Function — `analyze_job()`:** Returns strict JSON:
-  ```json
-  {
-    "visa_eligible": true,
-    "company_tier": "High",
-    "generated_cover_letter": "...",
-    "qa_answers": { ... }
-  }
-  ```
-- **Visa Gatekeeper:** Flags `visa_eligible: false` if JD explicitly denies OPT/CPT or requires US Citizenship.
-- **Company Tier System:**
-  - **"High"** = MBB (McKinsey, BCG, Bain), Big 4, Capital One, top finance/consulting → **pauses for Telegram approval**.
-  - **"Standard"** = all other companies → **auto-submits**.
-- **Cover Letter Rules:** 200–300 words based on company type. Must inject $3.05M DOT Foods savings and 100+ WOW Payments field conversations.
+- **LLM:** Google Gemini models (2.5-flash / 1.5-pro) routed via Respan API proxy for maximum observability.
+- **Knowledge Base:** Local Markdown definitions (`knowledge_base/`):
+  - `honest_resume.md`, `cover_letter_templates.md`, `interview_qa_matrix.md`, `project_context.md`.
+- **The Bouncer (`run_llm_bouncer`):** A blistering fast, cheap pre-screening prompt that immediately rejects jobs with salaries under $60k, strict US Citizenship/sponsorship requirements, or incompatible boutique firms.
+- **The Analyst (`analyze_job`):** Parses the Job Description for match scoring (1-10), extracts the exact ATS routing system, targets 5-8 priority keywords, and determines the company tier.
+- **The Generator (`get_gemini_answers`):** Maps the extracted form schema (via CSS selectors) directly to Gemini to generate physical DOM injection answers.
 
 ---
 
-## 3. The Orchestration Layer (n8n Workflows)
+## 3. The Orchestration Layer (`auto_bridge.py` & Queue)
 
-### Workflow A — The Inbox Backtracker
-- **Trigger:** Gmail Trigger Node monitors for "Thank you for applying" emails.
-- **Processing:** Code Node uses Regex to extract **Company**, **Role**, and **Location**.
-- **Output:** Google Sheets Node appends to the "Consulting & Analytics Summer 2026 Internship Tracker".
+The application has deliberately shifted from being orchestrated by n8n webhooks to a standalone, bulletproof Python daemon controlling a central queue (`queue_manager.py`).
 
-### Workflow B — The Application Engine
-- **Trigger:** Schedule Trigger at **2:00 AM** nightly.
-- **Processing:** Fetches queued job links from Google Sheet, loops through each.
-- **Output:** Triggers OpenClaw to run `apply_agent.py` per job.
+### Phase 1 — Omni-Scout
+- Navigates through predefined corporate filters on **Handshake** and **MigrateMate** (with LinkedIn scouting completely deprecated due to aggressive anti-bot countermeasures).
+- Extracts viable URLs and adds them to a thread-safe JSON Queue (`job_queue.json`) managed by `FileLock`. Ensures duplicates are ignored.
 
-### Workflow C — The Telegram Gatekeeper
-- **Trigger:** `apply_agent.py` exits with code `2` (High-tier company paused).
-- **Processing:** n8n reads `pending_approvals.json`, sends generated cover letter to Telegram.
-- **Approval:** User taps "Approve" → n8n tells OpenClaw to resume and submit.
+### Phase 2 — The Apply Agent
+- Pops pending jobs from the queue and navigates safely.
+- Passes JD through the AI pipeline (Bouncer → Analyst → Generator).
+- **ATS Whitelist Validation:** Only attempts to fill forms on trusted modern ATS systems (Greenhouse, Lever, Ashby, and LinkedIn Easy Apply). Hard-rejects legacy logic mazes like Workday or iCIMS.
+- **Adaptive Form Injection:** Uses raw JavaScript DOM setters (`Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set`) to bypass React/Vue state protections on forms, ensuring the ATS natively registers the keystrokes.
 
 ---
 
-## 4. The Execution Layer (OpenClaw + nodriver)
+## 4. The Execution Layer (Browser Sandbox)
 
-### State Management
-- **nodriver** (undetected Chrome automation) runs in **headed mode** with a **persistent profile**.
-- Saved session cookies keep LinkedIn and Handshake logged in without 2FA every night.
+To prevent the catastrophic profile corruption associated with multi-tab concurrency and race conditions, the bot operates aggressively on a **Single-Tab Sequential Execution** loop.
 
-### Application Flow
-1. Navigate to job URL → scrape Job Description text.
-2. Call `analyze_job()` → get visa eligibility, company tier, cover letter, QA answers.
-3. If `visa_eligible == false` → log "Skipped - Visa", close tab, move on.
-4. If `company_tier == "High"` → save assets to `pending_approvals.json` → `sys.exit(2)` for Telegram approval.
-5. If `company_tier == "Standard"` → auto-fill form via CSS selectors → submit.
-
-### Error Handling
-- `try/except` blocks catch CAPTCHAs, timeouts, and unexpected DOM states.
-- On failure: screenshot → `screenshots/` → print error code → `sys.exit(1)`.
+### Strict Profile Sandboxing
+- A dedicated, completely self-contained Google Chrome profile is generated at `./bot_chrome_profile` (`USER_DATA_DIR`).
+- **Initial Setup:** The `login_helper.py` script opens Handshake/MigrateMate over X11 forwarding from the VPS to allow physical 2FA authentication by the user. 
+- **Persistence:** These cryptographically signed session cookies permanently authorize the bot's data-center IP address to operate natively without triggering bot-walls.
+- **Pacing:** Emulates human pacing by introducing variable jitter (3-7s) between physical clicks and utilizing massive 30-minute rest periods between index sweeps.
 
 ---
 
@@ -84,4 +60,6 @@
 
 | Date | Phase | Notes |
 |------|-------|-------|
-| 2026-03-01 | Phase 0 | Repo scaffolded, knowledge_base/ populated, pushed to GitHub |
+| 2026-03-01 | Phase 0 | Repo scaffolded, `knowledge_base/` populated. Orchestration originally planned exclusively for n8n. |
+| 2026-03-03 | Phase 1 | Python logic implemented. Reverted from Multi-Tab Concurrency to a safer Single-Tab Sequential Execution engine to completely eliminate state/session corruption. |
+| 2026-03-04 | Phase 2 | VPS deployment. Configured X11 forwarding to bypass bot-walls via physical authentication (`login_helper.py`), patched `nodriver` root crashes (`sandbox: False`), and extended the `nodriver` connection timeout loop to account for X11 remote rendering latency. Migrated LLM clients to GenAI 0.6+ schema. |
