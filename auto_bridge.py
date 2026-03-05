@@ -24,23 +24,23 @@ async def main():
     
     # Optional: explicitly point to Chrome for Testing if installed
     browser_kwargs = {
-        "headless": headless_mode,
         "user_data_dir": BOT_PROFILE_DIR,
-        "no_sandbox": True,
+        "headless": headless_mode,
+        "no_sandbox": True, # Required for running as root on VPS
         "browser_args": [
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-software-rasterizer',
             '--disable-setuid-sandbox',
             '--disable-session-crashed-bubble',
-            '--enforce-webrtc-ip-handling-policy=default_public_interface_only'
+            '--enforce-webrtc-ip-handling-policy=default_public_interface_only',
+            '--remote-debugging-host=127.0.0.1'
         ]
     }
     
-    chrome_testing_path = "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
-    if os.path.exists(chrome_testing_path):
-        print(f"[BROWSER] Using explicit Google Chrome for Testing at: {chrome_testing_path}")
-        browser_kwargs["browser_executable_path"] = chrome_testing_path
+    mac_chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if sys.platform == "darwin" and os.path.exists(mac_chrome_path):
+        browser_kwargs["browser_executable_path"] = mac_chrome_path
         
     # Force the browser to ONLY use this isolated directory
     browser = await uc.start(**browser_kwargs)
