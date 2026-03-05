@@ -142,7 +142,7 @@ async def process_payload(payload_path: Path):
             
             page = await context.new_page()
             print(f"[MAC NODE] Navigating to: {job_url}")
-            await page.goto(job_url, waitUntil="domcontentloaded", timeout=60000)
+            await page.goto(job_url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(5)  # Let React Virtual DOM settle
             
             # Form schema extraction for debugging
