@@ -289,19 +289,30 @@ def pull_payloads_from_vps():
     """
     VPS_ADDRESS = "root@100.86.28.66"
     REMOTE_PAYLOAD_DIR = "/root/OpenClaw-Applicant-Bot/execution_payloads/"
+    IDENTITY_FILE = os.path.expanduser("~/.ssh/id_ed25519_openclaw")
     
     PAYLOAD_DIR.mkdir(exist_ok=True)
     
     try:
         # SCP all JSON payloads
-        scp_cmd = f"scp -q {VPS_ADDRESS}:{REMOTE_PAYLOAD_DIR}*.json ./{PAYLOAD_DIR.name}/"
-        result = subprocess.run(scp_cmd, shell=True, capture_output=True, text=True)
+        scp_cmd = [
+            "scp", "-q", 
+            "-i", IDENTITY_FILE,
+            f"{VPS_ADDRESS}:{REMOTE_PAYLOAD_DIR}*.json", 
+            f"./{PAYLOAD_DIR.name}/"
+        ]
+        result = subprocess.run(scp_cmd, capture_output=True, text=True)
         
         if result.returncode == 0 or "No such file or directory" in result.stderr:
             # Successfully pulled or nothing to pull. Clean up remote if we succeeded.
             if result.returncode == 0:
-                ssh_cmd = f"ssh -q {VPS_ADDRESS} 'rm -f {REMOTE_PAYLOAD_DIR}*.json'"
-                subprocess.run(ssh_cmd, shell=True)
+                ssh_cmd = [
+                    "ssh", "-q", 
+                    "-i", IDENTITY_FILE,
+                    VPS_ADDRESS, 
+                    f"rm -f {REMOTE_PAYLOAD_DIR}*.json"
+                ]
+                subprocess.run(ssh_cmd)
         else:
             print(f"[MAC NODE] SCP pull returned non-zero. stderr: {result.stderr.strip()}")
             
