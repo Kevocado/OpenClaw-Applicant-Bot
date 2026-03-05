@@ -20,3 +20,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+execution_payloads/
+last_analysis.json
+job_queue.json

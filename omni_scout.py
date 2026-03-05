@@ -4,7 +4,6 @@ import re
 import urllib.parse
 import os
 import sys
-from bs4 import BeautifulSoup
 from google import genai
 from dotenv import load_dotenv
 from queue_manager import JobQueue
@@ -46,14 +45,18 @@ async def fetch_and_extract_jobs(page, url: str, platform: str, priority: int) -
         # Give the React Virtual DOM time to paint the screen
         await asyncio.sleep(5)
         
-        html = await page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-        elements = soup.find_all('a', href=True)
+        # Native Playwright JS evaluation instead of stateless BeautifulSoup
+        elements = await page.evaluate('''() => {
+            return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                href: a.getAttribute('href'),
+                text: a.innerText || a.textContent
+            }));
+        }''')
         
         for el in elements:
             try:
-                href = el.get('href', '').strip()
-                text = el.get_text(separator=" ", strip=True)
+                href = (el.get('href') or '').strip()
+                text = (el.get('text') or '').strip()
                 
                 if not href or not text:
                     continue
@@ -144,6 +147,9 @@ async def run_scout(queue: JobQueue):
                 print(f"        -> Found {len(hs_jobs)} on HS")
 
             await browser.close()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        print("\\n[SCOUT] Shutting down gracefully. Queue state is preserved.")
+        return added_count
     except Exception as e:
         print(f"[SCOUT] Critical Playwright error during scout loop: {e}")
         raise e

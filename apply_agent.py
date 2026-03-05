@@ -10,6 +10,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 from google import genai
 from dotenv import load_dotenv
 
@@ -20,7 +21,6 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-USER_DATA_DIR = os.path.join(PROJECT_ROOT, "bot_chrome_profile")
 SCREENSHOTS_DIR = Path(os.path.join(PROJECT_ROOT, "screenshots"))
 PENDING_APPROVALS_FILE = Path("./pending_approvals.json")
 KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
@@ -97,20 +97,22 @@ def sanitize_jd(raw_text: str) -> str:
 
 # ─── LLM Bouncer ─────────────────────────────────────────────────────────────
 
-def run_llm_bouncer(jd_text: str, client: genai.Client) -> dict:
-    """Fast prescreen to protect API tokens from impossible applications."""
+def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
+    """Fast prescreen to protect API tokens from impossible applications using local Ollama."""
+    rules_json = kb.get("application_rules", "{}")
+    
     bouncer_prompt = f"""
     Analyze this Job Description:
     {jd_text}
     
     The applicant is an MSBA student requiring F-1 CPT/OPT sponsorship for Summer 2026. 
-    The absolute minimum acceptable salary is $60,000.
     
-    Perform a strict gatekeeping check based on these three rules:
+    Perform a strict gatekeeping check based on these rules:
+    {rules_json}
     
-    1. SALARY: If the text explicitly states a salary below $60,000, reject it. If the salary is NOT explicitly listed, assume it pays well and DO NOT reject it for this reason.
-    2. VISA/SPONSORSHIP & INDUSTRY: STRICTLY REJECT startups, boutique firms, or descriptions mentioning "US Citizenship", "Permanent Residency/Green Card required" or "We do not provide sponsorship". 
-    3. TARGET SECTORS: Automatically APPROVE and prioritize mid-to-large corporations in the logistics, finance, and healthcare sectors.
+    - SALARY: Be less strict about salary. Any paid role is fine. Do not reject based on low hourly rates.
+    - VISA/SPONSORSHIP: Be EXTREMELY STRICT. Reject startups, boutique firms, or descriptions mentioning "U.S. Citizen only", "Green Card required", "No CPT/OPT", "Unpaid", or "We do not provide sponsorship".
+    - TARGET SECTORS: Automatically APPROVE and prioritize mid-to-large corporations in logistics, finance, and healthcare sectors.
     
     Return ONLY valid JSON with no markdown formatting:
     {{
@@ -120,21 +122,19 @@ def run_llm_bouncer(jd_text: str, client: genai.Client) -> dict:
     """
     
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=bouncer_prompt,
-            config=genai.types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
-        )
-        clean_json = response.text.replace("```json", "").replace("```", "").strip()
+        response = requests.post("http://localhost:11434/api/generate", json={
+            "model": "llama3",
+            "prompt": bouncer_prompt,
+            "stream": False,
+            "format": "json"
+        }, timeout=30)
+        clean_json = response.json().get("response", "{}").strip()
         return json.loads(clean_json)
     except json.JSONDecodeError as e:
         print(f"[BOUNCER] JSON parse error: {e}. Defaulting to REJECT (safe fail).")
         return {"proceed": False, "rejection_reason": "Bouncer parse error — malformed LLM response"}
     except Exception as e:
-        print(f"[BOUNCER] Network/API error running prescreen: {e}")
+        print(f"[BOUNCER] Network/API error connecting to local Ollama: {e}")
         # On network error, default to PROCEED (retry later) rather than blocking
         return {"proceed": True, "rejection_reason": ""}
 
@@ -224,88 +224,63 @@ JOB DESCRIPTION:
 {job_description}
 """
 
-    # Model fallback chain — best model first, cheaper fallbacks
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-    max_retries = 3
-    base_delay = 10  # seconds
+    try:
+        print("[LLM] Trying Ollama llama3 (Initial Analysis)...")
+        response = requests.post("http://localhost:11434/api/generate", json={
+            "model": "llama3",
+            "prompt": system_prompt + "\\n" + user_prompt,
+            "stream": False,
+            "format": "json"
+        }, timeout=90)
+        raw_text = response.json().get("response", "{}")
+        result = json.loads(raw_text)
 
-    for model_name in models_to_try:
-        for attempt in range(1, max_retries + 1):
-            try:
-                print(f"[LLM] Trying {model_name} (attempt {attempt}/{max_retries})...")
+        # Validate required keys with defaults
+        defaults = {
+            "Company": "Unknown",
+            "Role": "Unknown",
+            "ATS_System": "Unknown",
+            "visa_eligible": True,
+            "Visa_Required": "No",
+            "company_tier": "Standard",
+            "Target_Keywords": [],
+            "Match_Score": 5
+        }
+        for key, default in defaults.items():
+            if key not in result:
+                print(f"[LLM] WARNING: Missing key '{key}', using default")
+                result[key] = default
 
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[system_prompt, user_prompt],
-                    config=genai.types.GenerateContentConfig(
-                        temperature=0.3,
-                        response_mime_type="application/json",
-                    ),
-                )
-                raw_text = response.text
-                result = json.loads(raw_text)
+        print(f"[LLM] Analysis complete:")
+        print(f"  Company: {result['Company']} | Role: {result['Role']}")
+        print(f"  ATS: {result['ATS_System']} | Match: {result['Match_Score']}/10")
+        print(f"  Visa: {result['visa_eligible']} | Tier: {result['company_tier']}")
+        print(f"  Keywords: {', '.join(result.get('Target_Keywords', []))}")
 
-                # Validate required keys with defaults
-                defaults = {
-                    "Company": "Unknown",
-                    "Role": "Unknown",
-                    "ATS_System": "Unknown",
-                    "visa_eligible": True,
-                    "Visa_Required": "No",
-                    "company_tier": "Standard",
-                    "Target_Keywords": [],
-                    "Match_Score": 5
-                }
-                for key, default in defaults.items():
-                    if key not in result:
-                        print(f"[LLM] WARNING: Missing key '{key}', using default")
-                        result[key] = default
+        # Write analysis to file for n8n to read
+        analysis_file = Path("./last_analysis.json")
+        analysis_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(f"[LLM] Analysis saved to {analysis_file}")
 
-                print(f"[LLM] Analysis complete:")
-                print(f"  Company: {result['Company']} | Role: {result['Role']}")
-                print(f"  ATS: {result['ATS_System']} | Match: {result['Match_Score']}/10")
-                print(f"  Visa: {result['visa_eligible']} | Tier: {result['company_tier']}")
-                print(f"  Keywords: {', '.join(result.get('Target_Keywords', []))}")
+        # Output structured JSON line for n8n stdout parsing
+        print(f"ANALYSIS_JSON::{json.dumps(result)}")
+        return result
 
-                # Write analysis to file for n8n to read
-                analysis_file = Path("./last_analysis.json")
-                analysis_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
-                print(f"[LLM] Analysis saved to {analysis_file}")
-
-                # Output structured JSON line for n8n stdout parsing
-                print(f"ANALYSIS_JSON::{json.dumps(result)}")
-                return result
-
-            except json.JSONDecodeError as e:
-                print(f"[LLM] ERROR: Failed to parse JSON response: {e}")
-                print(f"[LLM] Raw response: {raw_text[:500]}")
-                return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
-                        "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
-                        "Target_Keywords": [], "Match_Score": 5}
-
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    delay = base_delay * (2 ** (attempt - 1))  # 10s, 20s, 40s
-                    print(f"[LLM] Rate limited on {model_name} — waiting {delay}s before retry...")
-                    time.sleep(delay)
-                    if attempt == max_retries:
-                        print(f"[LLM] Exhausted retries on {model_name}, trying next model...")
-                        break  # try next model
-                elif "404" in error_str or "NOT_FOUND" in error_str:
-                    print(f"[LLM] Model {model_name} not available, trying next model...")
-                    break  # skip to next model immediately
-                else:
-                    print(f"[LLM] ERROR: API call failed: {e}")
-                    traceback.print_exc()
-                    return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
-                            "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
-                            "Target_Keywords": [], "Match_Score": 5}
-
-    print("[LLM] All models exhausted — using safe defaults")
-    return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
-            "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
-            "Target_Keywords": [], "Match_Score": 5}
+    except json.JSONDecodeError as e:
+        print(f"[LLM] ERROR: Failed to parse JSON response: {e}")
+        try:
+            print(f"[LLM] Raw response: {raw_text[:500]}")
+        except:
+            pass
+        return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
+                "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
+                "Target_Keywords": [], "Match_Score": 5}
+    except Exception as e:
+        print(f"[LLM] ERROR: Local API call failed: {e}")
+        traceback.print_exc()
+        return {"Company": "Unknown", "Role": "Unknown", "ATS_System": "Unknown",
+                "visa_eligible": True, "Visa_Required": "No", "company_tier": "Standard",
+                "Target_Keywords": [], "Match_Score": 5}
 
 
 # ─── Approval Management ─────────────────────────────────────────────────────
@@ -347,7 +322,6 @@ async def scrape_job_description(page) -> str:
         # Detect login redirect
         if any(kw in str(page_url).lower() for kw in ["login", "signin", "auth", "checkpoint"]):
             print("[SCRAPE] ⚠️  LOGIN PAGE DETECTED — cookies may be expired or incompatible")
-            print("[SCRAPE] You need to run login_helper.py on the VPS to create fresh cookies")
             return ""
     except Exception as e:
         print(f"[SCRAPE] Debug error: {e}")
@@ -576,7 +550,7 @@ async def apply_to_job_internal(job_url: str, job_id: str, queue, client: genai.
 
     # ─── The LLM Bouncer ─────────────────────────────────────────────────────
     print("[JOB] Running LLM Bouncer prescreen...")
-    bouncer_verdict = run_llm_bouncer(jd_text, client)
+    bouncer_verdict = run_llm_bouncer(jd_text, kb)
     if not bouncer_verdict.get("proceed", True):
         reason = bouncer_verdict.get('rejection_reason', 'Failed prescreen')
         print(f"[BOUNCER] Skipped: {reason}")
@@ -682,6 +656,9 @@ async def run_apply(queue, client: genai.Client, kb: dict):
             else:
                 queue.update_status(job_id, "SOFT_FAIL", notes=f"Failed cleanly with EXIT_FAILURE code.")
                     
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            print("\\n[ORCHESTRATOR] Shutting down gracefully. Queue state is preserved.")
+            return
         except Exception as e:
             error_msg = str(e)
             print(f"[ORCHESTRATOR] Exception caught for {job_id}: {error_msg}")

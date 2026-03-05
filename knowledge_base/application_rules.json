@@ -1,11 +1,11 @@
 {
-    "minimum_salary_requirement": "110000",
-    "target_salary_range": "$110,000 - $140,000",
-    "relocation": "Open to relocation for the right role. Currently based in San Francisco, CA.",
-    "start_date": "Available within 2-4 weeks notice.",
-    "sponsorship_needed": "Yes, I require sponsorship now or in the future (F-1 STEM OPT).",
-    "work_authorization": "Authorized to work in the US on F-1 STEM OPT.",
-    "highest_education": "Master's Degree",
+    "minimum_salary_requirement": "0",
+    "target_salary_range": "Paid internships only, no strict minimum.",
+    "relocation": "Currently based in Urbana, IL. Open to relocation, specifically targeting Chicago and New York for Summer 2026.",
+    "start_date": "Available for Summer 2026 internships.",
+    "sponsorship_needed": "Yes, I will require sponsorship in the future. I am currently on an F-1 visa.",
+    "work_authorization": "Authorized to work in the US on an F-1 visa. Eligible for CPT for Summer 2026 internships, and OPT upon graduation.",
+    "highest_education": "Master's Degree (In Progress)",
     "linkedin_url": "https://www.linkedin.com/in/kevinsigey/",
     "github_url": "https://github.com/Kevocado",
     "portfolio_url": "https://kevinsigey.com",
@@ -14,5 +14,14 @@
         "race": "Decline to specify",
         "veteran": "I am not a protected veteran",
         "disability": "No, I don't have a disability"
+    },
+    "llm_bouncer_rules": {
+        "salary_enforcement": "Role must be paid. Do not reject based on low hourly rates.",
+        "reject_if_contains": [
+            "U.S. Citizen only",
+            "Green Card required",
+            "No CPT/OPT",
+            "Unpaid"
+        ]
     }
 }
