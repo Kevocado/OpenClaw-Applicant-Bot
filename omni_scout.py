@@ -1,14 +1,15 @@
 import asyncio
 import json
 import re
-import nodriver as uc
 import urllib.parse
 import os
 import sys
+import requests
 from bs4 import BeautifulSoup
 from google import genai
 from dotenv import load_dotenv
 from queue_manager import JobQueue
+import time
 
 load_dotenv()
 
@@ -38,29 +39,33 @@ search_queries = generate_search_queries(base_roles, config)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 KEYWORDSAI_API_KEY = os.getenv("KEYWORDSAI_API_KEY")
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-USER_DATA_DIR = os.path.join(PROJECT_ROOT, "bot_chrome_profile")
+
 # DataImpulse Residential Proxy (Commented out to use native Mac Wi-Fi)
 # PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
-async def extract_jobs_from_dom(page, platform, priority):
+
+def fetch_and_extract_jobs(url: str, platform: str, priority: int) -> list:
     """
-    Extracts job data from the raw DOM safely handling NoneType elements.
+    HTTP GET request for lightweight scraping on the VPS (Brain)
     """
-    await asyncio.sleep(5)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
     
     jobs = []
     try:
-        elements = await page.select_all('a')
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        elements = soup.find_all('a', href=True)
         
         for el in elements:
             try:
-                # Safely handle potential NoneTypes from nodriver elements
-                href = getattr(el, 'href', '') or ''
-                text = getattr(el, 'text', '') or getattr(el, 'text_content', '') or ''
-                
-                href = str(href).strip()
-                text = str(text).strip()
+                href = el.get('href', '').strip()
+                text = el.get_text(separator=" ", strip=True)
                 
                 if not href or not text:
                     continue
@@ -93,11 +98,10 @@ async def extract_jobs_from_dom(page, platform, priority):
                         "Deadline": ""
                     })
             except Exception:
-                # If a single element fails parsing, silently skip it
                 continue
                 
     except Exception as e:
-        print(f"[SCOUT] Failed to select elements on {platform}: {e}")
+        print(f"[SCOUT] Failed to HTTP fetch elements on {platform}: {e}")
             
     # Deduplicate by URL
     seen_urls = set()
@@ -107,67 +111,47 @@ async def extract_jobs_from_dom(page, platform, priority):
             unique_jobs.append(job)
             seen_urls.add(job["Job_URL"])
             
-    if len(unique_jobs) == 0:
-        import time
-        ts = int(time.time())
-        try:
-            os.makedirs("./screenshots", exist_ok=True)
-            await page.save_screenshot(f"./screenshots/debug_scout_{platform}_{ts}.png")
-            print(f"        -> [DEBUG] Saved blank scrape screenshot to screenshots/debug_scout_{platform}_{ts}.png")
-        except Exception:
-            pass
-            
     return unique_jobs[:10]
 
-async def run_scout(main_tab, queue: JobQueue):
+
+async def run_scout(queue: JobQueue):
+    """
+    VPS (Brain) Orchestration loop for scouting. No headless browser.
+    """
     added_count = 0
 
     try:
-        # Target 1: MigrateMate (Base page + Filter Click)
-        print("[SCOUT] Sourcing from MigrateMate...")
-        await main_tab.get('https://migratemate.co/jobs')
-        
-        # Give the React Virtual DOM time to paint the screen
-        await asyncio.sleep(4)
-        
-        try:
-            # Find and click the specific filter button
-            filter_btn = await main_tab.select('button:contains("Apply Filters")')
-            await filter_btn.mouse_click()
-            print("[SCOUT] Filters applied. Waiting for results...")
-            
-            # Give the network time to fetch the filtered jobs
-            await asyncio.sleep(5)
-        except Exception as e:
-            print(f"[SCOUT] Failed to apply filters on MigrateMate: {e}")
-
-        mm_jobs = await extract_jobs_from_dom(main_tab, "MigrateMate", 1)
+        # Target 1: MigrateMate
+        print("[SCOUT] HTTP Fetching MigrateMate...")
+        mm_url = "https://migratemate.co/jobs"
+        mm_jobs = fetch_and_extract_jobs(mm_url, "MigrateMate", 1)
         for job in mm_jobs:
             if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="MigrateMate"):
                 added_count += 1
         print(f"        -> Found {len(mm_jobs)} on MM")
         
         for query in search_queries:
-            print(f"[SCOUT] Target: Scouring for '{query}'...")
+            time.sleep(2)
+            print(f"[SCOUT] Target: HTTP Fetching '{query}'...")
             query_encoded = urllib.parse.quote(query)
 
-            # Target 2: Handshake (Appended options for Sponsorship)
-            print("[SCOUT] Sourcing from Handshake...")
-            await main_tab.get(f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT')
-            hs_jobs = await extract_jobs_from_dom(main_tab, "Handshake", 2)
+            # Target 2: Handshake
+            print("[SCOUT] HTTP Fetching Handshake...")
+            hs_url = f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT'
+            hs_jobs = fetch_and_extract_jobs(hs_url, "Handshake", 2)
+            
             for job in hs_jobs:
                 if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
                     added_count += 1
             print(f"        -> Found {len(hs_jobs)} on HS")
 
     except Exception as e:
-        print(f"[SCOUT] Critical browser error during scout loop: {e}")
-        raise e  # Propagate error up to trigger standby
+        print(f"[SCOUT] Critical HTTP error during scout loop: {e}")
+        raise e
 
     if added_count == 0:
         print("[SCOUT] CRITICAL WARNING: 0 jobs were added to the queue during this cycle.")
-        print("[SCOUT] This usually indicates the browser is blocked by a login wall, CAPTCHA, or the DOM failed to load.")
-        raise Exception("Login Wall or Page Load Failure Detected (0 jobs scraped)")
+        print("[SCOUT] Handshake/MigrateMate might have implemented strict Cloudflare blocks.")
 
     print(f"\n[SCOUT] Total new unique jobs added to queue: {added_count}")
     return added_count

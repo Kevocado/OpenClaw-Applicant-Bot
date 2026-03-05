@@ -1,0 +1,39 @@
+{
+    "name": "Local-Mac-Execution-Node",
+    "description": "Secondary node that explicitly handles isolated Playwright browser automation on the Mac's residential hardware. All other tools are denied.",
+    "token": "REPLACE_WITH_YOUR_SHARED_SECRET_TOKEN",
+    "gateway": "https://<YOUR_VPS_TAILSCALE_IP>:8000",
+    "port": 8000,
+    "tools": {
+        "browser": {
+            "disabled": false,
+            "ask": "never",
+            "args": {
+                "headless": false,
+                "stealth": true,
+                "session": "openclaw_runner_v1"
+            }
+        },
+        "fs": {
+            "disabled": false,
+            "ask": "never",
+            "workspaceOnly": true
+        },
+        "exec": {
+            "disabled": false,
+            "ask": "always"
+        },
+        "nodes": {
+            "disabled": true
+        },
+        "canvas": {
+            "disabled": true
+        },
+        "llm_task": {
+            "disabled": true
+        },
+        "computer": {
+            "disabled": true
+        }
+    }
+}

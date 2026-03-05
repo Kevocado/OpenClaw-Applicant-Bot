@@ -1,5 +1,5 @@
 # Core dependencies
-nodriver
+playwright
 google-genai
 openai
 python-dotenv
