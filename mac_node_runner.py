@@ -3,17 +3,32 @@ import json
 import time
 import asyncio
 from pathlib import Path
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 # Paths
+PAYLOAD_DIR = Path("./execution_payloads")
+SCREENSHOTS_DIR = Path("./execution_screenshots")
+SCREENSHOTS_DIR.mkdir(exist_ok=True)
+MAX_RETRIES = 3
 PAYLOAD_DIR = Path("./execution_payloads")
 
 async def process_payload(payload_path: Path):
     """
-    Reads a dispatched payload and uses OpenClaw's clawbrowser skill
-    to natively execute the DOM manipulation.
+    Reads a dispatched payload and uses Playwright to execute DOM manipulation.
+    Implements file locking by renaming to .processing first.
     """
+    processing_path = payload_path.with_suffix(".processing")
     try:
-        data = json.loads(payload_path.read_text(encoding="utf-8"))
+        # Atomic rename to acquire lock
+        payload_path.rename(processing_path)
+    except FileNotFoundError:
+        # Another worker grabbed it
+        return
+        
+    try:
+        data = json.loads(processing_path.read_text(encoding="utf-8"))
         job_id = data.get("job_id")
         job_url = data.get("job_url")
         company = data.get("company")
@@ -46,9 +61,11 @@ async def process_payload(payload_path: Path):
             
             page = await context.new_page()
             print(f"[MAC NODE] Navigating to: {job_url}")
-            await page.goto(job_url, timeout=60000)
+            await page.goto(job_url, waitUntil="domcontentloaded", timeout=60000)
             await asyncio.sleep(5)  # Let React Virtual DOM settle
             
+            # Form schema extraction for debugging
+            print("[MAC NODE] Extracting form schema...")
             # ─── NATIVE REACT DOM INJECTION ──────────────────────────────
             print("[MAC NODE] Injecting Cover Letter & Q&A Answers using native React Object bypass...")
             
@@ -57,7 +74,7 @@ async def process_payload(payload_path: Path):
                 "qa_answers": qa_answers
             }
             
-            await page.evaluate("""
+            submitted = await page.evaluate("""
             (payload) => {
                 const { cover_letter, qa_answers } = payload;
                 
@@ -103,31 +120,73 @@ async def process_payload(payload_path: Path):
                 });
                 
                 // Example logic to find input fields for QA
-                const inputs = document.querySelectorAll('input[type="text"]');
+                const inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"]');
                 inputs.forEach(inp => {
                     for (const [key, answer] of Object.entries(qa_answers)) {
-                        if (inp.name.toLowerCase().includes(key.toLowerCase()) || inp.id.toLowerCase().includes(key.toLowerCase())) {
+                        const nameMatch = inp.name && inp.name.toLowerCase().includes(key.toLowerCase());
+                        const idMatch = inp.id && inp.id.toLowerCase().includes(key.toLowerCase());
+                        const ariaMatch = inp.getAttribute('aria-label') && inp.getAttribute('aria-label').toLowerCase().includes(key.toLowerCase());
+                        
+                        if (nameMatch || idMatch || ariaMatch) {
                             setNativeValue(inp, answer);
                         }
                     }
                 });
+                
+                // Form Submission
+                const submitButtons = Array.from(document.querySelectorAll('button, input[type="submit"]')).filter(btn => {
+                    const text = (btn.innerText || btn.value || '').toLowerCase();
+                    return text.includes('submit') || text.includes('apply') || text.includes('next') || text.includes('continue');
+                });
+                
+                if (submitButtons.length > 0) {
+                    // Click the most likely submit button safely
+                    submitButtons[submitButtons.length - 1].click();
+                    return true;
+                }
+                return false;
             }
             """, inject_payload)
             # ─────────────────────────────────────────────────────────────
             
-            await asyncio.sleep(3)
-            print("[MAC NODE] Injection complete. Reviewing DOM...")
+            await asyncio.sleep(4)
+            print(f"[MAC NODE] Injection & Submission attempt completed. Did submit: {submitted}")
+            
+            # Take verification screenshot
+            screenshot_path = SCREENSHOTS_DIR / f"success_{job_id}_{int(time.time())}.png"
+            await page.screenshot(path=str(screenshot_path))
+            print(f"[MAC NODE] Saved verification screenshot to {screenshot_path}")
+            
             await browser.close()
         
         # Execution successful. Clean up payload.
         print(f"[MAC NODE] ✅ Execution successful. Purging payload.")
-        payload_path.unlink()
+        processing_path.unlink()
         
     except Exception as e:
-        print(f"[MAC NODE] ❌ Execution failed for {payload_path.name}: {e}")
-        # Rename to indicate failure so we don't infinitely retry
-        failed_path = payload_path.with_suffix(".failed")
-        payload_path.rename(failed_path)
+        print(f"[MAC NODE] ❌ Execution failed for {processing_path.name}: {e}")
+        
+        # Read retry count
+        try:
+            data = json.loads(processing_path.read_text(encoding="utf-8"))
+            retries = data.get("retries", 0) + 1
+            data["retries"] = retries
+            data["last_error"] = str(e)
+            
+            if retries <= MAX_RETRIES:
+                print(f"[MAC NODE] Retry {retries}/{MAX_RETRIES} backing off...")
+                processing_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                # Back to queue
+                processing_path.rename(processing_path.with_suffix(".json"))
+                await asyncio.sleep(2 ** retries)  # Exponential backoff
+            else:
+                print(f"[MAC NODE] Max retries reached. Marking as failed.")
+                failed_path = processing_path.with_suffix(".failed")
+                processing_path.rename(failed_path)
+        except Exception as inner_e:
+            print(f"[MAC NODE] Critical failure updating retry count: {inner_e}")
+            failed_path = processing_path.with_suffix(".failed")
+            processing_path.rename(failed_path)
 
 
 async def poll_payload_directory():
@@ -155,7 +214,10 @@ async def poll_payload_directory():
             print("\n[MAC NODE] Shutting down execution node gracefully...")
             break
         except Exception as e:
-            print(f"[MAC NODE] Poller error: {e}")
+            err_str = str(e)
+            print(f"[MAC NODE] Poller error: {err_str}")
+            if "Tailscale" in err_str or "No such file or directory" in err_str:
+                print("[MAC NODE] Directory inaccessible. Checking Tailscale mount...")
             await asyncio.sleep(10)
 
 
