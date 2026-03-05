@@ -2,17 +2,98 @@ import os
 import json
 import time
 import asyncio
+import sys
 from pathlib import Path
 import logging
 import subprocess
 
+from dotenv import load_dotenv
+from google import genai
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
+# Initialization
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
 # Paths
+KNOWLEDGE_BASE_DIR = Path("./knowledge_base")
 PAYLOAD_DIR = Path("./execution_payloads")
 SCREENSHOTS_DIR = Path("./execution_screenshots")
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 MAX_RETRIES = 3
+
+# ─── Knowledge Base & LLM JIT Generation ──────────────────────────────────────
+
+def load_knowledge_base() -> dict:
+    """Load all knowledge base files into memory."""
+    kb = {}
+    files = {
+        "resume": "honest_resume.md",
+        "cover_letter_template": "cover_letter_templates.md",
+        "interview_qa": "interview_qa_matrix.md",
+        "project_context": "project_context.md",
+        "application_rules": "application_rules.json",
+    }
+    for key, filename in files.items():
+        filepath = KNOWLEDGE_BASE_DIR / filename
+        if filepath.exists():
+            kb[key] = filepath.read_text(encoding="utf-8")
+        else:
+            print(f"[MAC NODE] 🚨 CRITICAL ERROR: KB file missing: {filepath}")
+    return kb
+
+KB_DATA = load_knowledge_base()
+
+def generate_application_material(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
+    """
+    Generate the exact Application Materials (Cover Letter, QAs) Just-In-Time.
+    """
+    system_prompt = f"""You are an expert career agent. Generate the exact application materials based on the provided documents.
+=== RESUME ===
+{knowledge_base.get('resume', '')}
+=== COVER LETTER TEMPLATES ===
+{knowledge_base.get('cover_letter_template', '')}
+=== INTERVIEW Q&A MATRIX ===
+{knowledge_base.get('interview_qa', '')}
+
+=== INSTRUCTIONS ===
+Analyze the job description and return strictly a JSON object with these keys:
+
+1. "generated_cover_letter" (string):
+   - Use the MASTER TEMPLATE from the cover letter templates file. Follow tone adjustments.
+   - Mention F-1 STEM OPT (36 months) only if international students are mentioned.
+   - Replace all [BRACKETED] sections with company-specific info. Write with human cadence.
+
+2. "qa_answers" (object):
+   - Keys are common application questions found in the job posting.
+   - Values are answers drawn STRICTLY from the interview Q&A matrix.
+
+Return ONLY valid JSON. No markdown.
+"""
+    user_prompt = f"JOB URL: {job_url}\nJOB DESCRIPTION:\n{job_description}"
+    
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+    for model_name in models_to_try:
+        try:
+            print(f"[MAC NODE] JIT Generation via {model_name}...")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[system_prompt, user_prompt],
+                config=genai.types.GenerateContentConfig(temperature=0.3, response_mime_type="application/json")
+            )
+            data = json.loads(response.text)
+            return {
+                "generated_cover_letter": data.get("generated_cover_letter", ""),
+                "qa_answers": data.get("qa_answers", {})
+            }
+        except Exception as e:
+            print(f"[MAC NODE] Generation error on {model_name}: {e}")
+            
+    return {"generated_cover_letter": "", "qa_answers": {}}
+
+# ──────────────────────────────────────────────────────────────────────────────
 PAYLOAD_DIR = Path("./execution_payloads")
 
 async def process_payload(payload_path: Path):
@@ -32,10 +113,9 @@ async def process_payload(payload_path: Path):
         data = json.loads(processing_path.read_text(encoding="utf-8"))
         job_id = data.get("job_id")
         job_url = data.get("job_url")
+        job_description = data.get("job_description", "")
         company = data.get("company")
         role = data.get("role")
-        cover_letter = data.get("generated_cover_letter", "")
-        qa_answers = data.get("qa_answers", {})
         
         print(f"\n[MAC NODE] 🚀 Processing Payload: {company} - {role} ({job_id})")
         print(f"[MAC NODE] Navigating to target: {job_url}")
@@ -68,6 +148,18 @@ async def process_payload(payload_path: Path):
             # Form schema extraction for debugging
             print("[MAC NODE] Extracting form schema...")
             # ─── NATIVE REACT DOM INJECTION ──────────────────────────────
+            print("[MAC NODE] Page successfully loaded! Proceeding with JIT Gemini LLM Generation.")
+            if not client:
+                print("[MAC NODE] ❌ ERROR: GEMINI_API_KEY environment variable is not set. Cannot generate answers.")
+                raise Exception("Missing API Key")
+            
+            materials = await asyncio.to_thread(
+                generate_application_material, client, job_url, job_description, KB_DATA
+            )
+            
+            cover_letter = materials.get("generated_cover_letter", "")
+            qa_answers = materials.get("qa_answers", {})
+            
             print("[MAC NODE] Injecting Cover Letter & Q&A Answers using native React Object bypass...")
             
             inject_payload = {

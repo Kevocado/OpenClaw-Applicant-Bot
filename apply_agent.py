@@ -387,14 +387,10 @@ def delegate_to_mac_node(job_id: str, job_url: str, analysis: dict):
         print(f"[GATEWAY] ❌ ERROR: Validation Failed. Invalid job_url: {job_url}")
         return None
     
-    cl = analysis.get("generated_cover_letter", "")
-    qa = analysis.get("qa_answers", {})
+    jd = analysis.get("job_description", "")
     
-    if not isinstance(cl, str):
-        print(f"[GATEWAY] ❌ ERROR: Validation Failed. Cover letter is not a string.")
-        return None
-    if not isinstance(qa, dict):
-        print(f"[GATEWAY] ❌ ERROR: Validation Failed. QA answers must be a dictionary.")
+    if not isinstance(jd, str) or len(jd) < 10:
+        print(f"[GATEWAY] ❌ ERROR: Validation Failed. Job description is invalid.")
         return None
     # ─────────────────────────────────────────────────────────────────────────
     
@@ -409,8 +405,7 @@ def delegate_to_mac_node(job_id: str, job_url: str, analysis: dict):
         "company": analysis.get("Company", "Unknown"),
         "role": analysis.get("Role", "Unknown"),
         "ats_system": analysis.get("ATS_System", "Unknown"),
-        "generated_cover_letter": analysis.get("generated_cover_letter", ""),
-        "qa_answers": analysis.get("qa_answers", {}),
+        "job_description": analysis.get("job_description", ""),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "status": "pending_execution"
     }
@@ -421,55 +416,6 @@ def delegate_to_mac_node(job_id: str, job_url: str, analysis: dict):
 
 
 # ─── Main Application Loop ───────────────────────────────────────────────────
-
-def generate_application_material(client: genai.Client, job_url: str, job_description: str, knowledge_base: dict) -> dict:
-    """
-    Generate just the expensive Application Materials (Cover Letter, QAs) after routing succeeds.
-    """
-    system_prompt = f"""You are an expert career agent. Generate the exact application materials based on the provided documents.
-=== RESUME ===
-{knowledge_base['resume']}
-=== COVER LETTER TEMPLATES ===
-{knowledge_base['cover_letter_template']}
-=== INTERVIEW Q&A MATRIX ===
-{knowledge_base['interview_qa']}
-=== PROJECT CONTEXT ===
-{knowledge_base.get('project_context', '')}
-
-=== INSTRUCTIONS ===
-Analyze the job description and return strictly a JSON object with these keys:
-
-1. "generated_cover_letter" (string):
-   - Use the MASTER TEMPLATE from the cover letter templates file. Follow tone adjustments.
-   - Mention F-1 STEM OPT (36 months) only if international students are mentioned.
-   - Replace all [BRACKETED] sections with company-specific info. Write with human cadence.
-
-2. "qa_answers" (object):
-   - Keys are common application questions found in the job posting.
-   - Values are answers drawn STRICTLY from the interview Q&A matrix.
-
-Return ONLY valid JSON. No markdown.
-"""
-    user_prompt = f"JOB URL: {job_url}\nJOB DESCRIPTION:\n{job_description}"
-    
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-    for model_name in models_to_try:
-        try:
-            print(f"[LLM] Generating specialized materials via {model_name}...")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[system_prompt, user_prompt],
-                config=genai.types.GenerateContentConfig(temperature=0.3, response_mime_type="application/json")
-            )
-            data = json.loads(response.text)
-            return {
-                "generated_cover_letter": data.get("generated_cover_letter", ""),
-                "qa_answers": data.get("qa_answers", {})
-            }
-        except Exception as e:
-            print(f"[LLM] Generation error on {model_name}: {e}")
-            
-    return {"generated_cover_letter": "", "qa_answers": {}}
 
 
 async def apply_to_job_internal(job_url: str, job_id: str, queue, client: genai.Client, kb: dict) -> int:
@@ -618,13 +564,8 @@ async def apply_to_job_internal(job_url: str, job_id: str, queue, client: genai.
     else:
         print(f"[JOB] SUCCESS — ATS ({ats_domain}) is Whitelisted for guest checkout!")
 
-    # Step 8: JIT LLM API Generation
-    print("[JOB] Validated ATS destination. Generating Just-In-Time Application Materials...")
-    materials = generate_application_material(client, job_url, jd_text, kb)
-    
     # State Injection
-    analysis["generated_cover_letter"] = materials["generated_cover_letter"]
-    analysis["qa_answers"] = materials["qa_answers"]
+    analysis["job_description"] = jd_text
     
     # Step 9: Delegate Form Execution to the Distributed Mac Node
     delegate_to_mac_node(job_id, external_url, analysis)
