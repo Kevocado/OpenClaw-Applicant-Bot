@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.WARNING  # Suppress noisy telegram library logs
+    level=logging.WARNING
 )
 
 CLAWD_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN_clawd_master") or os.getenv("TELEGRAM_BOT_TOKEN_CLAWD_MASTER")
@@ -38,9 +38,44 @@ def load_queue_stats() -> dict:
         return {}
 
 def is_authorized(update: Update) -> bool:
-    return str(update.effective_chat.id) == str(TELEGRAM_CHAT_ID)
+    chat_id = str(update.effective_chat.id)
+    authorized = chat_id == str(TELEGRAM_CHAT_ID)
+    if not authorized:
+        print(f"[CLAWD] ⚠️ Unauthorized access attempt from chat_id: {chat_id} (expected: {TELEGRAM_CHAT_ID})")
+    return authorized
 
 # ─── Commands ────────────────────────────────────────────────────────────────
+
+HELP_TEXT = (
+    "🤖 *ClawdMasterBot — Command Reference*\n\n"
+    "📊 *Monitoring*\n"
+    "  /status — Current phase \\+ queue counts\n"
+    "  /stats — Full breakdown of all job statuses\n\n"
+    "⏯️ *Control*\n"
+    "  /pause — Pause after current job finishes\n"
+    "  /resume — Resume the daemon\n\n"
+    "🔍 *Search Queries*\n"
+    "  /queries — List all active search terms\n"
+    "  /addquery `<term>` — Add a new search term\n"
+    "  /removequery `<term>` — Remove a search term\n\n"
+    "❓ *Help*\n"
+    "  /help — Show this message"
+)
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE, pause_event: asyncio.Event, daemon_status: dict):
+    if not is_authorized(update): return
+    await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE, pause_event: asyncio.Event, daemon_status: dict):
+    """Always respond to /start to confirm the bot is alive."""
+    chat_id = str(update.effective_chat.id)
+    if not is_authorized(update):
+        await update.message.reply_text(f"⛔ Unauthorized. Your chat ID is `{chat_id}`.", parse_mode="Markdown")
+        return
+    await update.message.reply_text(
+        "👋 *ClawdMasterBot is online!*\n\nUse /help to see all available commands.",
+        parse_mode="Markdown"
+    )
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE, pause_event: asyncio.Event, daemon_status: dict):
     if not is_authorized(update): return
@@ -93,7 +128,7 @@ async def cmd_addquery(update: Update, context: ContextTypes.DEFAULT_TYPE, pause
         return
     queries.append(term)
     save_queries(queries)
-    await update.message.reply_text(f"✅ Added `{term}` to search queries.\n\nIt will be used starting next scout cycle.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Added `{term}` to search queries.\n\nTakes effect on the next scout cycle.", parse_mode="Markdown")
 
 async def cmd_removequery(update: Update, context: ContextTypes.DEFAULT_TYPE, pause_event: asyncio.Event, daemon_status: dict):
     if not is_authorized(update): return
@@ -124,17 +159,20 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, pause_ev
 async def run_clawd_bot(pause_event: asyncio.Event, daemon_status: dict):
     """Run the ClawdMasterBot polling loop as an asyncio task."""
     if not CLAWD_TOKEN:
-        print("[CLAWD] WARNING: TELEGRAM_BOT_TOKEN_CLAWD_MASTER not set. Control bot disabled.")
+        print("[CLAWD] WARNING: TELEGRAM_BOT_TOKEN_clawd_master not set. Control bot disabled.")
         return
+
+    print(f"[CLAWD] Starting with token ...{CLAWD_TOKEN[-6:]} | Authorized chat: {TELEGRAM_CHAT_ID}")
 
     app = ApplicationBuilder().token(CLAWD_TOKEN).build()
 
-    # Wrap each handler to inject shared state via closure
     def make_handler(fn):
         async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await fn(update, context, pause_event, daemon_status)
         return handler
 
+    app.add_handler(CommandHandler("start", make_handler(cmd_start)))
+    app.add_handler(CommandHandler("help", make_handler(cmd_help)))
     app.add_handler(CommandHandler("status", make_handler(cmd_status)))
     app.add_handler(CommandHandler("pause", make_handler(cmd_pause)))
     app.add_handler(CommandHandler("resume", make_handler(cmd_resume)))
@@ -148,7 +186,6 @@ async def run_clawd_bot(pause_event: asyncio.Event, daemon_status: dict):
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
 
-    # Keep running until cancelled
     try:
         await asyncio.Event().wait()
     except asyncio.CancelledError:

@@ -70,31 +70,25 @@ def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
     rules_json = kb.get("application_rules", "{}")
     resume_text = kb.get("resume", "{}")
     
-    bouncer_prompt = f"""
-    ### TASK: Evaluate if this job is a match for the candidate.
-    
-    ### JOB DESCRIPTION:
-    {jd_text}
-    
-    ### CANDIDATE RESUME SUMMARY:
-    {resume_text[:2000]}
-    
-    ### RULES:
-    1. VISA: Reject if the JD says "US Citizen Only", "No Sponsorship", or "Security Clearance Required".
-    2. MATCH: Candidate is an MSBA student (Data/Analytics/Product). Score 1-10.
-    
-    ### IMPORTANT:
-    In your JSON response, the "Company" and "Role" fields MUST come from the ### JOB DESCRIPTION section above. Do NOT use the candidate's current employer (WOW Payments).
-    
-    ### OUTPUT VALID JSON ONLY:
-    {{
-        "proceed": true,
-        "Match_Score": 8,
-        "Company": "Name of the company hiring (NOT WOW Payments)",
-        "Role": "Job Title",
-        "rejection_reason": ""
-    }}
-    """
+    bouncer_prompt = f"""You are a strict job screener. Read the job posting below and return a JSON object.
+
+<JOB_POSTING>
+{jd_text}
+</JOB_POSTING>
+
+Extract the COMPANY NAME and JOB TITLE directly from the <JOB_POSTING> above.
+Do NOT invent company names. Do NOT use "WOW Payments" — that is the candidate's current employer, not the hiring company.
+
+The candidate is a Master's student in Business Analytics (MSBA) seeking a Summer 2026 internship on F-1 OPT/CPT.
+
+Screening rules:
+- REJECT if the posting says "US Citizen only", "Security Clearance required", or "no visa sponsorship".
+- REJECT if it is not an internship or co-op role.
+- SCORE the match 1-10 based on fit with Data/Analytics/Product/Strategy/Finance skills.
+
+Return ONLY a raw JSON object, no markdown, no explanation:
+{{"proceed": true, "Match_Score": 8, "Company": "<company name from posting>", "Role": "<job title from posting>", "rejection_reason": ""}}
+"""
     
     try:
         response = requests.post("http://localhost:11434/api/generate", json={
@@ -113,7 +107,7 @@ def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
         print(f"[BOUNCER] JSON parse error: {e}. Defaulting to REJECT (safe fail).")
         return {"proceed": False, "rejection_reason": "Bouncer parse error — malformed LLM response", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
     except Exception as e:
-        print(f"[BOUNCER] Network/API error connecting to local Ollama (phi3:mini): {e}")
+        print(f"[BOUNCER] Network/API error connecting to local Ollama (qwen2:0.5b): {e}")
         return {"proceed": False, "rejection_reason": "Ollama network error", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
 
 # ─── Telegram Notifier ───────────────────────────────────────────────────────
