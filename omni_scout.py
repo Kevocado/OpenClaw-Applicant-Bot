@@ -203,9 +203,10 @@ async def run_scout(queue: JobQueue):    """
             page = await context.new_page()
 
             for query in search_queries:
-                # Filter exclusively for "Past 24 Hours"
-                # We map the human concept to Google ('d') and LinkedIn ('r86400')
+                # Filter for "Past 1 Week" and "Past 24 Hours" for a wide range of jobs
+                # We map the human concept to Google ('w', 'd') and LinkedIn ('r604800', 'r86400')
                 time_filters = [
+                    {"label": "Past 1 Week", "google": "w", "linkedin": "r604800"},
                     {"label": "Past 24 Hours", "google": "d", "linkedin": "r86400"}
                 ]
                 

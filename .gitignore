@@ -29,3 +29,6 @@ Thumbs.db
 execution_payloads/
 last_analysis.json
 job_queue.json
+venv/
+cron_log.log
+telegram_bot.py
