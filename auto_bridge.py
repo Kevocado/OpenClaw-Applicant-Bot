@@ -13,7 +13,7 @@ async def main():
         await asyncio.sleep(2)
         print("\n[BRIDGE] Booting Master Orchestrator...")
         
-        # Load KB once for the whole run
+        # Load KB once for the whole run. No Gemini initialization since Ollama is used.
         kb = load_knowledge_base()
         
         print("[BRIDGE] Launching Continuous Background Pipeline...")
@@ -27,14 +27,14 @@ async def main():
                 await run_apply(queue, kb)
                 
                 print("\n[BRIDGE] Full cycle complete. System resting for 30 minutes to emulate human pacing...\n")
-                await asyncio.sleep(1800)  # Sleep 30 mins between major indexing sweeps
+                await asyncio.sleep(1800) 
                 
             except Exception as e:
                 error_msg = str(e)
                 print(f"\n[BRIDGE] ERROR during cycle: {error_msg}")
                     
                 print(f"[BRIDGE] Recovering in 5 minutes before retry...\n")
-                await asyncio.sleep(300)  # Wait 5 minutes before retrying
+                await asyncio.sleep(300) 
                 continue
             
     finally:
