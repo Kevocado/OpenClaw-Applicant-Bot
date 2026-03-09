@@ -1,13 +1,10 @@
 import asyncio
 import json
-import re
 import urllib.parse
 import os
 import sys
-from google import genai
 from dotenv import load_dotenv
 from queue_manager import JobQueue
-import time
 from playwright.async_api import async_playwright
 
 load_dotenv()
@@ -108,85 +105,10 @@ async def fetch_linkedin_jobs(page, query: str, time_filter: str = "r86400") -> 
             
     return unique_jobs[:10]
 
-async def fetch_google_jobs(page, query: str, time_filter: str = "d") -> list:
+async def run_scout(queue: JobQueue):
     """
-    Search Google for LinkedIn job postings.
-    Uses Google Dorking to target the public job view.
-    time_filter: "d" (past 24h) or "w" (past week)
-    """
-    jobs = []
-    
-    # 1. Google Dork targeting LinkedIn job pages
-    dork_query = f'site:linkedin.com/jobs/view/ "{query}"'
-    dork_encoded = urllib.parse.quote(dork_query)
-    
-    # 2. Google Time Filter
-    url = f"https://www.google.com/search?q={dork_encoded}&tbs=qdr:{time_filter}"
-    
-    try:
-        await page.goto(url, timeout=30000)
-        await asyncio.sleep(3) # Wait for results
-        
-        # Scroll to load
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(1)
-        
-        # Extract hrefs
-        elements = await page.evaluate('''() => {
-            return Array.from(document.querySelectorAll('a[href]')).map(a => ({
-                href: a.getAttribute('href'),
-                text: a.innerText || a.textContent
-            })).filter(el => el.href.includes('linkedin.com/jobs/view/'));
-        }''')
-        
-        for el in elements:
-            try:
-                href = (el.get('href') or '').strip()
-                title = (el.get('text') or '').strip()
-                
-                if not href:
-                    continue
-                    
-                # Clean up Google URL redirects if any, and strip tracking
-                if 'url?q=' in href:
-                    href = href.split('url?q=')[1].split('&')[0]
-                    href = urllib.parse.unquote(href)
-                    
-                if '?' in href:
-                    href = href.split('?')[0] # Remove tracking to get clean job ID URL
-                    
-                # Extract basic company/role if possible from title
-                # Google usually formats as "Job Title - Company - LinkedIn"
-                parts = title.split(' - ')
-                role = parts[0] if len(parts) > 0 else query
-                company = parts[1] if len(parts) > 1 else 'Unknown Google Scrape'
-                
-                jobs.append({
-                    "Job_URL": href,
-                    "Company": company, 
-                    "Role": role,
-                    "ATS_System": "LinkedIn via Google",
-                    "Priority": 1,
-                    "Deadline": ""
-                })
-            except Exception:
-                continue
-                
-    except Exception as e:
-        print(f"[SCOUT] Failed Google Dork search for '{query}': {e}")
-            
-    # Deduplicate by URL
-    seen_urls = set()
-    unique_jobs = []
-    for job in jobs:
-        if job["Job_URL"] not in seen_urls:
-            unique_jobs.append(job)
-            seen_urls.add(job["Job_URL"])
-            
-    return unique_jobs[:10]
-
-async def run_scout(queue: JobQueue):    """
     VPS (Brain) Orchestration loop for scouting. Uses headless Playwright.
+    ONLY uses LinkedIn Public Search (No Handshake, No login)
     """
     added_count = 0
 
@@ -203,29 +125,19 @@ async def run_scout(queue: JobQueue):    """
             page = await context.new_page()
 
             for query in search_queries:
-                # Filter for "Past 1 Week" and "Past 24 Hours" for a wide range of jobs
-                # We map the human concept to Google ('w', 'd') and LinkedIn ('r604800', 'r86400')
                 time_filters = [
-                    {"label": "Past 1 Week", "google": "w", "linkedin": "r604800"},
-                    {"label": "Past 24 Hours", "google": "d", "linkedin": "r86400"}
+                    {"label": "Past 1 Week", "linkedin": "r604800"},
+                    {"label": "Past 24 Hours", "linkedin": "r86400"}
                 ]
                 
                 for t_filter in time_filters:
-                    print(f"\\n[SCOUT] Target: Google Dork Search for '{query}' ({t_filter['label']})...")
-                    google_jobs = await fetch_google_jobs(page, query, time_filter=t_filter['google'])
-                    
-                    for job in google_jobs:
-                        if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source=f"Google Search ({t_filter['label']})"):
-                            added_count += 1
-                    print(f"        -> Found {len(google_jobs)} via Google Dork")
-                    
-                    print(f"[SCOUT] Target: LinkedIn Public Search for '{query}' ({t_filter['label']})...")
+                    print(f"\\n[SCOUT] Target: LinkedIn Public Search for '{query}' ({t_filter['label']})...")
                     li_jobs = await fetch_linkedin_jobs(page, query, time_filter=t_filter['linkedin'])
                     
                     for job in li_jobs:
                         if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source=f"LinkedIn Public ({t_filter['label']})"):
                             added_count += 1
-                    print(f"        -> Found {len(li_jobs)} on LinkedIn")
+                    print(f"        -> Found {len(li_jobs)} on LinkedIn for '{query}' ({t_filter['label']})")
 
             await browser.close()
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -238,6 +150,5 @@ async def run_scout(queue: JobQueue):    """
     if added_count == 0:
         print("[SCOUT] WARNING: 0 jobs were added to the queue during this cycle.")
 
-    print(f"\n[SCOUT] Total new unique jobs added to queue: {added_count}")
+    print(f"\\n[SCOUT] Total new unique jobs added to queue: {added_count}")
     return added_count
-
