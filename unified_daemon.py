@@ -63,7 +63,10 @@ async def unified_main():
             pass
             
     try:
-        await asyncio.gather(orchestrator_task, stop_event.wait())
+        done, pending = await asyncio.wait(
+            [orchestrator_task, asyncio.create_task(stop_event.wait())],
+            return_when=asyncio.FIRST_COMPLETED
+        )
     except asyncio.CancelledError:
         pass
     finally:
