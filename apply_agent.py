@@ -263,7 +263,7 @@ async def apply_to_job_internal(job_url: str, job_id: str, queue, kb: dict) -> i
     print(f"[JOB] JD extracted and sanitized ({len(jd_text)} chars)")
 
     # Run Ollama (phi3:mini) Bouncer
-    print("[JOB] Running phi3:mini Bouncer prescreen...")
+    print("[JOB] Running qwen2:0.5b Bouncer prescreen...")
     bouncer_verdict = run_llm_bouncer(jd_text, kb)
     
     proceed = bouncer_verdict.get("proceed", False)
