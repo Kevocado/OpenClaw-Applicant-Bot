@@ -3,7 +3,7 @@ import os
 import signal
 import sys
 
-from telegram_bot import main as start_telegram_bot
+# removed import of telegram_bot main
 from auto_bridge import main as start_auto_bridge
 
 async def unified_main():
