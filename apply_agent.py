@@ -71,28 +71,28 @@ def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
     resume_text = kb.get("resume", "{}")
     
     bouncer_prompt = f"""
-    Analyze this Job Description:
+    ### TASK: Evaluate if this job is a match for the candidate.
+    
+    ### JOB DESCRIPTION:
     {jd_text}
     
-    Candidate Profile (Summary from Resume):
+    ### CANDIDATE RESUME SUMMARY:
     {resume_text[:2000]}
     
-    The applicant is an MSBA student requiring F-1 CPT/OPT sponsorship for Summer 2026. 
+    ### RULES:
+    1. VISA: Reject if the JD says "US Citizen Only", "No Sponsorship", or "Security Clearance Required".
+    2. MATCH: Candidate is an MSBA student (Data/Analytics/Product). Score 1-10.
     
-    Perform a strict gatekeeping check based on these rules:
-    {rules_json}
+    ### IMPORTANT:
+    In your JSON response, the "Company" and "Role" fields MUST come from the ### JOB DESCRIPTION section above. Do NOT use the candidate's current employer (WOW Payments).
     
-    - SALARY: Be less strict about salary. Any paid role is fine. Do not reject based on low hourly rates.
-    - VISA/SPONSORSHIP: Be EXTREMELY STRICT. Reject startups, boutique firms, or descriptions mentioning "U.S. Citizen only", "Green Card required", "No CPT/OPT", "Unpaid", or "We do not provide sponsorship".
-    - MATCH SCORE: Score the job's alignment with the Candidate Profile from 1 to 10.
-    
-    Return ONLY valid JSON with no markdown formatting or extra text:
+    ### OUTPUT VALID JSON ONLY:
     {{
-        "proceed": true or false,
-        "Match_Score": integer between 1 and 10,
-        "Company": "string",
-        "Role": "string",
-        "rejection_reason": "Provide a 1-sentence reason only if proceed is false. Otherwise leave blank."
+        "proceed": true,
+        "Match_Score": 8,
+        "Company": "Name of the company hiring (NOT WOW Payments)",
+        "Role": "Job Title",
+        "rejection_reason": ""
     }}
     """
     
