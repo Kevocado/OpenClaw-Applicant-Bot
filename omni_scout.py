@@ -21,32 +21,18 @@ except Exception as e:
     TARGET_ROLES = ["Software", "Engineer", "Intern"]
     config = {}
 
-def generate_search_queries(base_roles, config):
-    print("[SCOUT] Using customized F-1 corporate queries")
-    return [
-        # Core Analytics
-        "Data Analyst Internship",
-        "Business Analytics Intern",
-        "Data Science Intern",
-        "Business Intelligence Intern",
-        "Quantitative Analytics Intern",
-        # Product & Strategy
-        "Technical Product Manager Intern",
-        "Operations Strategy Intern",
-        "Strategy Intern Financial Modeling",
-        "AI Product Engineering Intern",
-        # Supply Chain & Logistics
-        "Logistics Analyst",
-        "Supply Chain Analytics Intern",
-        # Finance & Quant
-        "Quantitative Research Intern",
-        "Fintech Analyst Intern",
-        # Applied Science
-        "Applied Scientist Intern",
-        "Machine Learning Intern",
-    ]
+SEARCH_QUERIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search_queries.json")
 
-search_queries = generate_search_queries(base_roles, config)
+def load_search_queries() -> list:
+    """Load search queries from JSON file at runtime so they can be updated live."""
+    try:
+        with open(SEARCH_QUERIES_FILE, "r") as f:
+            queries = json.load(f)
+        print(f"[SCOUT] Loaded {len(queries)} search queries from search_queries.json")
+        return queries
+    except Exception as e:
+        print(f"[SCOUT] ERROR loading search_queries.json: {e}. Using fallback.")
+        return ["Data Analyst Internship", "Business Analytics Intern"]
 
 async def fetch_linkedin_jobs(page, query: str, time_filter: str = "r86400") -> list:
     """
@@ -141,7 +127,7 @@ async def run_scout(queue: JobQueue):
             )
             page = await context.new_page()
 
-            for query in search_queries:
+            for query in load_search_queries():
                 time_filters = [
                     {"label": "Past 1 Week", "linkedin": "r604800"},
                     {"label": "Past 24 Hours", "linkedin": "r86400"}
