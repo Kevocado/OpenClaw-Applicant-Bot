@@ -98,11 +98,11 @@ def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
     
     try:
         response = requests.post("http://localhost:11434/api/generate", json={
-            "model": "phi3:mini",
+            "model": "qwen2:0.5b",
             "prompt": bouncer_prompt,
             "stream": False,
             "format": "json"
-        }, timeout=45)
+        }, timeout=120)
         clean_json = response.json().get("response", "{}").strip()
         result = json.loads(clean_json)
         # Fix typing if phi3:mini returned strings

@@ -6,7 +6,7 @@ import sys
 from queue_manager import JobQueue
 from omni_scout import run_scout
 from apply_agent import run_apply, load_knowledge_base
-from telegram_bot import init_app
+from telegram_bot import send_startup_message
 
 async def start_orchestrator():
     print("\n[DAEMON] Booting Master Orchestrator...")
@@ -37,17 +37,9 @@ async def start_orchestrator():
 async def unified_main():
     print("🚀 Starting Unified OpenClaw Daemon (Single Process)...")
 
-    # Start the scraping/evaluating loop natively
-    orchestrator_task = asyncio.create_task(start_orchestrator())
+    # Send a simple startup ping to Telegram (no polling, no conflict)
+    send_startup_message()
 
-    # Start the Telegram Bot background task
-    app = init_app()
-    await app.initialize()
-    await app.start()
-    
-    # Run bot polling in the background without blocking the main thread
-    telegram_task = asyncio.create_task(app.updater.start_polling())
-    
     stop_event = asyncio.Event()
 
     def handle_sigint():
@@ -61,7 +53,9 @@ async def unified_main():
             loop.add_signal_handler(signal.SIGTERM, handle_sigint)
         except NotImplementedError:
             pass
-            
+
+    orchestrator_task = asyncio.create_task(start_orchestrator())
+    
     try:
         done, pending = await asyncio.wait(
             [orchestrator_task, asyncio.create_task(stop_event.wait())],
@@ -70,11 +64,11 @@ async def unified_main():
     except asyncio.CancelledError:
         pass
     finally:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
-        
         orchestrator_task.cancel()
+        try:
+            await orchestrator_task
+        except asyncio.CancelledError:
+            pass
         print("✅ Shutdown complete.")
 
 if __name__ == "__main__":
