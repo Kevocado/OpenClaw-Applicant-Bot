@@ -27,72 +27,76 @@ except Exception as e:
 def generate_search_queries(base_roles, config):
     print("[SCOUT] Using customized F-1 corporate queries")
     return [
-        "Data Analyst Insurance",
-        "Business Analytics Manufacturing",
-        "Logistics Analyst",
-        "Healthcare Data"
+        "Data Analyst Internship",
+        "Business Analytics Intern",
+        "Logistics Analyst"
     ]
 
 search_queries = generate_search_queries(base_roles, config)
 
-async def fetch_and_extract_jobs(page, url: str, platform: str, priority: int) -> list:
+async def fetch_linkedin_jobs(page, query: str, time_filter: str = "r86400") -> list:
     """
-    Scrape using Playwright so the React DOM actually renders.
+    Scrape LinkedIn public job search. No login required.
+    time_filter: "r86400" (past 24h) or "r604800" (past week)
     """
     jobs = []
+    
+    # LinkedIn public search URL format
+    query_encoded = urllib.parse.quote(query)
+    url = f"https://www.linkedin.com/jobs/search?keywords={query_encoded}&location=United%20States&f_TPR={time_filter}&position=1&pageNum=0"
+    
     try:
         await page.goto(url, timeout=30000)
-        # Give the React Virtual DOM time to paint the screen
+        # Give LinkedIn time to load the public list
         await asyncio.sleep(5)
         
-        # Native Playwright JS evaluation instead of stateless BeautifulSoup
+        # Scroll a bit to load more jobs in the public view
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
+        await asyncio.sleep(2)
+        
         elements = await page.evaluate('''() => {
-            return Array.from(document.querySelectorAll('a[href]')).map(a => ({
-                href: a.getAttribute('href'),
-                text: a.innerText || a.textContent
-            }));
+            return Array.from(document.querySelectorAll('.base-card__full-link, .base-search-card__title')).map(el => {
+                let aTag = el.tagName.toLowerCase() === 'a' ? el : el.closest('a');
+                if (!aTag) return null;
+                
+                let card = aTag.closest('.base-search-card');
+                let companyEl = card ? card.querySelector('.base-search-card__subtitle') : null;
+                
+                return {
+                    href: aTag.getAttribute('href'),
+                    text: aTag.innerText || aTag.textContent,
+                    company: companyEl ? (companyEl.innerText || companyEl.textContent) : "Unknown Company"
+                };
+            }).filter(Boolean);
         }''')
         
         for el in elements:
             try:
                 href = (el.get('href') or '').strip()
-                text = (el.get('text') or '').strip()
+                title = (el.get('text') or '').strip()
+                company = (el.get('company') or 'Unknown').strip()
                 
-                if not href or not text:
+                if not href or not title:
                     continue
                     
-                # Fix relative URLs
-                if href.startswith('/'):
-                    if platform == "MigrateMate":
-                        href = "https://migratemate.co" + href
-                    elif platform == "Handshake":
-                        href = "https://app.joinhandshake.com" + href
-                    elif platform == "LinkedIn":
-                        href = "https://www.linkedin.com" + href
+                # Strip tracking parameters to get clean Job ID URL
+                if '?' in href:
+                    href = href.split('?')[0]
                     
-                # Basic heuristic filtering for job links
-                is_job_link = False
-                if platform == "MigrateMate" and "/job/" in href:
-                    is_job_link = True
-                elif platform == "Handshake" and "/jobs/" in href:
-                    is_job_link = True
-                elif platform == "LinkedIn" and "/view/" in href:
-                    is_job_link = True
-                    
-                if is_job_link and any(role.lower() in text.lower() for role in TARGET_ROLES):
+                if any(role.lower() in title.lower() for role in TARGET_ROLES):
                     jobs.append({
                         "Job_URL": href,
-                        "Company": "Extracted from DOM", 
-                        "Role": text,
-                        "ATS_System": platform,
-                        "Priority": priority,
+                        "Company": company, 
+                        "Role": title,
+                        "ATS_System": "LinkedIn",
+                        "Priority": 1,
                         "Deadline": ""
                     })
             except Exception:
                 continue
                 
     except Exception as e:
-        print(f"[SCOUT] Failed to Playwright fetch elements on {platform}: {e}")
+        print(f"[SCOUT] Failed to fetch LinkedIn jobs for '{query}': {e}")
             
     # Deduplicate by URL
     seen_urls = set()
@@ -104,9 +108,84 @@ async def fetch_and_extract_jobs(page, url: str, platform: str, priority: int) -
             
     return unique_jobs[:10]
 
-
-async def run_scout(queue: JobQueue):
+async def fetch_google_jobs(page, query: str, time_filter: str = "d") -> list:
     """
+    Search Google for LinkedIn job postings.
+    Uses Google Dorking to target the public job view.
+    time_filter: "d" (past 24h) or "w" (past week)
+    """
+    jobs = []
+    
+    # 1. Google Dork targeting LinkedIn job pages
+    dork_query = f'site:linkedin.com/jobs/view/ "{query}"'
+    dork_encoded = urllib.parse.quote(dork_query)
+    
+    # 2. Google Time Filter
+    url = f"https://www.google.com/search?q={dork_encoded}&tbs=qdr:{time_filter}"
+    
+    try:
+        await page.goto(url, timeout=30000)
+        await asyncio.sleep(3) # Wait for results
+        
+        # Scroll to load
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await asyncio.sleep(1)
+        
+        # Extract hrefs
+        elements = await page.evaluate('''() => {
+            return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                href: a.getAttribute('href'),
+                text: a.innerText || a.textContent
+            })).filter(el => el.href.includes('linkedin.com/jobs/view/'));
+        }''')
+        
+        for el in elements:
+            try:
+                href = (el.get('href') or '').strip()
+                title = (el.get('text') or '').strip()
+                
+                if not href:
+                    continue
+                    
+                # Clean up Google URL redirects if any, and strip tracking
+                if 'url?q=' in href:
+                    href = href.split('url?q=')[1].split('&')[0]
+                    href = urllib.parse.unquote(href)
+                    
+                if '?' in href:
+                    href = href.split('?')[0] # Remove tracking to get clean job ID URL
+                    
+                # Extract basic company/role if possible from title
+                # Google usually formats as "Job Title - Company - LinkedIn"
+                parts = title.split(' - ')
+                role = parts[0] if len(parts) > 0 else query
+                company = parts[1] if len(parts) > 1 else 'Unknown Google Scrape'
+                
+                jobs.append({
+                    "Job_URL": href,
+                    "Company": company, 
+                    "Role": role,
+                    "ATS_System": "LinkedIn via Google",
+                    "Priority": 1,
+                    "Deadline": ""
+                })
+            except Exception:
+                continue
+                
+    except Exception as e:
+        print(f"[SCOUT] Failed Google Dork search for '{query}': {e}")
+            
+    # Deduplicate by URL
+    seen_urls = set()
+    unique_jobs = []
+    for job in jobs:
+        if job["Job_URL"] not in seen_urls:
+            unique_jobs.append(job)
+            seen_urls.add(job["Job_URL"])
+            
+    return unique_jobs[:10]
+
+async def run_scout(queue: JobQueue):    """
     VPS (Brain) Orchestration loop for scouting. Uses headless Playwright.
     """
     added_count = 0
@@ -123,28 +202,29 @@ async def run_scout(queue: JobQueue):
             )
             page = await context.new_page()
 
-            # Target 1: MigrateMate
-            print("[SCOUT] Headless Fetching MigrateMate...")
-            mm_url = "https://migratemate.co/jobs"
-            mm_jobs = await fetch_and_extract_jobs(page, mm_url, "MigrateMate", 1)
-            for job in mm_jobs:
-                if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="MigrateMate"):
-                    added_count += 1
-            print(f"        -> Found {len(mm_jobs)} on MM")
-            
             for query in search_queries:
-                print(f"[SCOUT] Target: Headless Fetching '{query}'...")
-                query_encoded = urllib.parse.quote(query)
-
-                # Target 2: Handshake
-                print("[SCOUT] Headless Fetching Handshake...")
-                hs_url = f'https://app.joinhandshake.com/stu/postings?query={query_encoded}&options[Sponsorship+Options][]=Sponsors+Candidates&options[Sponsorship+Options][]=Accepts+OPT%2FCPT'
-                hs_jobs = await fetch_and_extract_jobs(page, hs_url, "Handshake", 2)
+                # Filter exclusively for "Past 24 Hours"
+                # We map the human concept to Google ('d') and LinkedIn ('r86400')
+                time_filters = [
+                    {"label": "Past 24 Hours", "google": "d", "linkedin": "r86400"}
+                ]
                 
-                for job in hs_jobs:
-                    if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source="Handshake"):
-                        added_count += 1
-                print(f"        -> Found {len(hs_jobs)} on HS")
+                for t_filter in time_filters:
+                    print(f"\\n[SCOUT] Target: Google Dork Search for '{query}' ({t_filter['label']})...")
+                    google_jobs = await fetch_google_jobs(page, query, time_filter=t_filter['google'])
+                    
+                    for job in google_jobs:
+                        if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source=f"Google Search ({t_filter['label']})"):
+                            added_count += 1
+                    print(f"        -> Found {len(google_jobs)} via Google Dork")
+                    
+                    print(f"[SCOUT] Target: LinkedIn Public Search for '{query}' ({t_filter['label']})...")
+                    li_jobs = await fetch_linkedin_jobs(page, query, time_filter=t_filter['linkedin'])
+                    
+                    for job in li_jobs:
+                        if queue.add_job(title=job['Role'], company=job['Company'], url=job['Job_URL'], source=f"LinkedIn Public ({t_filter['label']})"):
+                            added_count += 1
+                    print(f"        -> Found {len(li_jobs)} on LinkedIn")
 
             await browser.close()
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -155,8 +235,8 @@ async def run_scout(queue: JobQueue):
         raise e
 
     if added_count == 0:
-        print("[SCOUT] CRITICAL WARNING: 0 jobs were added to the queue during this cycle.")
-        print("[SCOUT] Handshake/MigrateMate might have implemented strict Cloudflare blocks.")
+        print("[SCOUT] WARNING: 0 jobs were added to the queue during this cycle.")
 
     print(f"\n[SCOUT] Total new unique jobs added to queue: {added_count}")
     return added_count
+
