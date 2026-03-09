@@ -24,9 +24,26 @@ except Exception as e:
 def generate_search_queries(base_roles, config):
     print("[SCOUT] Using customized F-1 corporate queries")
     return [
+        # Core Analytics
         "Data Analyst Internship",
         "Business Analytics Intern",
-        "Logistics Analyst"
+        "Data Science Intern",
+        "Business Intelligence Intern",
+        "Quantitative Analytics Intern",
+        # Product & Strategy
+        "Technical Product Manager Intern",
+        "Operations Strategy Intern",
+        "Strategy Intern Financial Modeling",
+        "AI Product Engineering Intern",
+        # Supply Chain & Logistics
+        "Logistics Analyst",
+        "Supply Chain Analytics Intern",
+        # Finance & Quant
+        "Quantitative Research Intern",
+        "Fintech Analyst Intern",
+        # Applied Science
+        "Applied Scientist Intern",
+        "Machine Learning Intern",
     ]
 
 search_queries = generate_search_queries(base_roles, config)
