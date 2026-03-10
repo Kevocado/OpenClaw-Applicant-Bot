@@ -270,8 +270,15 @@ async def apply_to_job_internal(job_url: str, job_id: str, queue, kb: dict) -> i
         print(f"[BOUNCER] Skipped: {reason}")
         return EXIT_FAILED_PRESCREEN
 
-    if score < 7:
-        print(f"[JOB] SKIPPED — Match Score too low ({score}/10)")
+    # Read threshold at runtime so /setscore from ClawdMasterBot takes effect immediately
+    threshold_file = Path(os.path.dirname(os.path.abspath(__file__))) / "score_threshold.txt"
+    try:
+        min_score = int(threshold_file.read_text().strip())
+    except Exception:
+        min_score = 9  # Default: only elite matches
+
+    if score < min_score:
+        print(f"[JOB] SKIPPED — Match Score too low ({score}/10, need {min_score})")
         return EXIT_LOW_SCORE
 
     print(f"[BOUNCER] Passed! High Match Score ({score}/10). Creating job alert.")
