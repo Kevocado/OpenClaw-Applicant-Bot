@@ -15,6 +15,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.WARNING
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 CLAWD_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN_clawd_master") or os.getenv("TELEGRAM_BOT_TOKEN_CLAWD_MASTER")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
