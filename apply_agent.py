@@ -124,11 +124,26 @@ Return ONLY raw JSON, no markdown:
 
 # ─── Telegram Notifier ───────────────────────────────────────────────────────
 
+# Rate limiter: max 10 Telegram alerts per hour
+_alert_timestamps: list = []
+MAX_ALERTS_PER_HOUR = 10
+
 def send_telegram_alert(company: str, role: str, score: int, job_id: str, job_url: str):
     """Sends a Telegram message to the user for a passing job."""
+    global _alert_timestamps
+    now = time.time()
+    # Drop timestamps older than 1 hour
+    _alert_timestamps = [t for t in _alert_timestamps if now - t < 3600]
+    if len(_alert_timestamps) >= MAX_ALERTS_PER_HOUR:
+        print(f"[TELEGRAM] ⚠️ Rate limit reached ({MAX_ALERTS_PER_HOUR}/hr). Suppressing alert for {company} - {role}.")
+        return
+
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[TELEGRAM] Missing Bot Token or Chat ID. Cannot send alert.")
         return
+
+    _alert_timestamps.append(now)
+
 
     text = (f"🎯 *New Job Match!*\n\n"
             f"🏢 *Company:* {company}\n"
