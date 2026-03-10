@@ -5,8 +5,11 @@ import sys
 import logging
 import subprocess
 from pathlib import Path
+from google import genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -72,17 +75,20 @@ HELP_TEXT = (
     "  /resume — Resume the daemon\n\n"
     "🎯 *Score Threshold*\n"
     "  /getscore — Current minimum match score\n"
-    "  /setscore `<1-10>` — Change minimum score\n\n"
+    "  /setscore `<1\-10>` — Change minimum score\n\n"
     "🔍 *Search Queries*\n"
     "  /queries — List all active search terms\n"
     "  /addquery `<term>` — Add a search term\n"
     "  /removequery `<term>` — Remove a search term\n\n"
+    "🧠 *AI Config \\(Natural Language\\)*\n"
+    "  /config `<instruction>` — Tell the AI what to change\n"
+    "  Example: `/config Only show internships, no full\-time`\n\n"
     "📋 *Rules \\& Resume*\n"
     "  /viewrules — Show application\\_rules.json\n"
-    "  /viewresume — Show first 1500 chars of resume\n\n"
+    "  /viewresume — Show resume preview\n\n"
     "🔄 *Updates*\n"
-    "  /update — git pull \\+ restart daemon with latest code\n"
-    "  /restart — Restart daemon without pulling\n\n"
+    "  /update — git pull \\+ restart\n"
+    "  /restart — Restart without pulling\n\n"
     "  /help — This message"
 )
 
@@ -234,6 +240,84 @@ async def cmd_restart(update, context, pause_event, daemon_status):
     await asyncio.sleep(2)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
+async def cmd_config(update, context, pause_event, daemon_status):
+    """Use Gemini to interpret a natural language config instruction."""
+    if not is_authorized(update): return
+    if not context.args:
+        await update.message.reply_text(
+            "🧠 *Usage:* `/config <your instruction>`\n\n"
+            "Examples:\n"
+            "  `/config Only search for internships, no full-time`\n"
+            "  `/config Add quant finance and fintech to my searches`\n"
+            "  `/config Remove logistics from searches`\n"
+            "  `/config Reject any job that requires a security clearance`",
+            parse_mode="Markdown"
+        )
+        return
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text("❌ GEMINI_API_KEY not set in .env. Cannot use /config.")
+        return
+
+    instruction = " ".join(context.args)
+    await update.message.reply_text(f"🧠 Processing: *{instruction}*...", parse_mode="Markdown")
+
+    try:
+        current_queries = json.loads(SEARCH_QUERIES_FILE.read_text())
+        current_rules = json.loads(RULES_FILE.read_text())
+
+        prompt = f"""You are a configuration assistant for a job search bot. The user has given you an instruction.
+
+Current search_queries (list of LinkedIn search terms):
+{json.dumps(current_queries, indent=2)}
+
+Current application_rules (JSON config for the job screener):
+{json.dumps(current_rules, indent=2)}
+
+User instruction: "{instruction}"
+
+Apply the instruction to the configuration. Return ONLY a raw JSON object with two keys:
+- "queries": the updated list of search query strings
+- "rules": the updated application_rules JSON object  
+- "summary": a 1-2 sentence plain English summary of what you changed
+
+Do not add markdown or explanation outside the JSON."""
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        raw = response.text.strip()
+        # Strip markdown code fences if model added them
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+
+        result = json.loads(raw)
+        new_queries = result.get("queries", current_queries)
+        new_rules = result.get("rules", current_rules)
+        summary = result.get("summary", "Configuration updated.")
+
+        SEARCH_QUERIES_FILE.write_text(json.dumps(new_queries, indent=4))
+        RULES_FILE.write_text(json.dumps(new_rules, indent=4))
+
+        added = [q for q in new_queries if q not in current_queries]
+        removed = [q for q in current_queries if q not in new_queries]
+
+        msg = f"✅ *Config updated!*\n\n{summary}"
+        if added:
+            msg += f"\n\n*Added queries:*\n" + "\n".join(f"  \u2022 `{q}`" for q in added)
+        if removed:
+            msg += f"\n\n*Removed queries:*\n" + "\n".join(f"  \u2022 `{q}`" for q in removed)
+        msg += "\n\nChanges take effect on the next scout cycle."
+
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+    except json.JSONDecodeError as e:
+        await update.message.reply_text(f"❌ Gemini returned invalid JSON: {e}\n\nTry rephrasing your instruction.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Config failed: {e}")
+
 
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
@@ -267,6 +351,7 @@ async def run_clawd_bot(pause_event: asyncio.Event, daemon_status: dict):
         ("viewresume",  cmd_viewresume),
         ("update",      cmd_update),
         ("restart",     cmd_restart),
+        ("config",      cmd_config),
     ]
     for cmd, fn in handlers:
         app.add_handler(CommandHandler(cmd, make_handler(fn)))
