@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from google import genai
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -66,49 +67,60 @@ def sanitize_jd(raw_text: str) -> str:
 # ─── LLM Bouncer ─────────────────────────────────────────────────────────────
 
 def run_llm_bouncer(jd_text: str, kb: dict) -> dict:
-    """Evaluate job against rules and return strict JSON with proceed flag and match score."""
+    """Evaluate job against rules using Gemini Flash. Returns structured JSON."""
+    resume_text = kb.get("resume", "")
     rules_json = kb.get("application_rules", "{}")
-    resume_text = kb.get("resume", "{}")
-    
-    bouncer_prompt = f"""You are a strict job screener. Read the job posting below and return a JSON object.
+
+    bouncer_prompt = f"""You are a strict job screener for a specific candidate. Evaluate the job posting below.
 
 <JOB_POSTING>
 {jd_text}
 </JOB_POSTING>
 
-Extract the COMPANY NAME and JOB TITLE directly from the <JOB_POSTING> above.
-Do NOT invent company names. Do NOT use "WOW Payments" — that is the candidate's current employer, not the hiring company.
+<CANDIDATE_PROFILE>
+{resume_text[:2500]}
+</CANDIDATE_PROFILE>
 
-The candidate is a Master's student in Business Analytics (MSBA) seeking a Summer 2026 internship on F-1 OPT/CPT.
+<SCREENING_RULES>
+{rules_json}
+</SCREENING_RULES>
 
-Screening rules:
-- REJECT if the posting says "US Citizen only", "Security Clearance required", or "no visa sponsorship".
-- REJECT if it is not an internship or co-op role.
-- SCORE the match 1-10 based on fit with Data/Analytics/Product/Strategy/Finance skills.
+Instructions:
+1. Extract COMPANY NAME and JOB TITLE directly from <JOB_POSTING>. Do NOT use the candidate's current employer.
+2. REJECT if: US Citizen only, Security Clearance required, No CPT/OPT, No sponsorship, Unpaid, Full-time (not an internship/co-op).
+3. REJECT if the role is clearly a poor fit (e.g. marketing, legal, nursing, manufacturing, unrelated field).
+4. SCORE match 1-10 strictly: 9-10 = near-perfect fit for an MSBA student with Data/Analytics/Finance/Product skills. 7-8 = good fit. Below 7 = weak fit.
+5. Be conservative. Most jobs should score 5-7. Only exceptional alignment earns 9-10.
 
-Return ONLY a raw JSON object, no markdown, no explanation:
-{{"proceed": true, "Match_Score": 8, "Company": "<company name from posting>", "Role": "<job title from posting>", "rejection_reason": ""}}
+Return ONLY raw JSON, no markdown:
+{{"proceed": true, "Match_Score": 7, "Company": "<company from posting>", "Role": "<title from posting>", "rejection_reason": ""}}
 """
-    
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        print("[BOUNCER] ERROR: GEMINI_API_KEY not set. Defaulting to REJECT.")
+        return {"proceed": False, "rejection_reason": "No Gemini API key", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
+
     try:
-        response = requests.post("http://localhost:11434/api/generate", json={
-            "model": "qwen2:0.5b",
-            "prompt": bouncer_prompt,
-            "stream": False,
-            "format": "json"
-        }, timeout=120)
-        clean_json = response.json().get("response", "{}").strip()
-        result = json.loads(clean_json)
-        # Fix typing if phi3:mini returned strings
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=bouncer_prompt
+        )
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        result = json.loads(raw)
         if "Match_Score" in result and isinstance(result["Match_Score"], str):
-             result["Match_Score"] = int(result["Match_Score"]) if result["Match_Score"].isdigit() else 5
+            result["Match_Score"] = int(result["Match_Score"]) if result["Match_Score"].isdigit() else 5
         return result
     except json.JSONDecodeError as e:
-        print(f"[BOUNCER] JSON parse error: {e}. Defaulting to REJECT (safe fail).")
-        return {"proceed": False, "rejection_reason": "Bouncer parse error — malformed LLM response", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
+        print(f"[BOUNCER] JSON parse error: {e}. Defaulting to REJECT.")
+        return {"proceed": False, "rejection_reason": "Bouncer parse error", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
     except Exception as e:
-        print(f"[BOUNCER] Network/API error connecting to local Ollama (qwen2:0.5b): {e}")
-        return {"proceed": False, "rejection_reason": "Ollama network error", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
+        print(f"[BOUNCER] Gemini API error: {e}")
+        return {"proceed": False, "rejection_reason": f"Gemini error: {str(e)}", "Match_Score": 0, "Company": "Unknown", "Role": "Unknown"}
+
 
 # ─── Telegram Notifier ───────────────────────────────────────────────────────
 
@@ -257,7 +269,7 @@ async def apply_to_job_internal(job_url: str, job_id: str, queue, kb: dict) -> i
     print(f"[JOB] JD extracted and sanitized ({len(jd_text)} chars)")
 
     # Run Ollama (phi3:mini) Bouncer
-    print("[JOB] Running qwen2:0.5b Bouncer prescreen...")
+    print("[JOB] Running Gemini Flash Bouncer prescreen...")
     bouncer_verdict = run_llm_bouncer(jd_text, kb)
     
     proceed = bouncer_verdict.get("proceed", False)
