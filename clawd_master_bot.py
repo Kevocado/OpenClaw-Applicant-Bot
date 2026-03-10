@@ -1,7 +1,9 @@
 import asyncio
 import json
 import os
+import sys
 import logging
+import subprocess
 from pathlib import Path
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -78,6 +80,9 @@ HELP_TEXT = (
     "📋 *Rules \\& Resume*\n"
     "  /viewrules — Show application\\_rules.json\n"
     "  /viewresume — Show first 1500 chars of resume\n\n"
+    "🔄 *Updates*\n"
+    "  /update — git pull \\+ restart daemon with latest code\n"
+    "  /restart — Restart daemon without pulling\n\n"
     "  /help — This message"
 )
 
@@ -202,6 +207,34 @@ async def cmd_viewresume(update, context, pause_event, daemon_status):
     except Exception as e:
         await update.message.reply_text(f"❌ Could not read resume: {e}")
 
+async def cmd_update(update, context, pause_event, daemon_status):
+    """Run git pull then restart the daemon process in-place."""
+    if not is_authorized(update): return
+    await update.message.reply_text("🔄 Pulling latest code from GitHub...")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "pull"],
+            capture_output=True, text=True, timeout=30
+        )
+        output = (result.stdout + result.stderr).strip() or "No output."
+        await update.message.reply_text(f"```\n{output[:1500]}\n```", parse_mode="Markdown")
+        if "Already up to date" in output:
+            await update.message.reply_text("✅ Already up to date. No restart needed.")
+        else:
+            await update.message.reply_text("✅ Update pulled! Restarting daemon now...")
+            await asyncio.sleep(2)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Update failed: {e}")
+
+async def cmd_restart(update, context, pause_event, daemon_status):
+    """Restart the daemon in-place without pulling."""
+    if not is_authorized(update): return
+    await update.message.reply_text("🔄 Restarting daemon...")
+    await asyncio.sleep(2)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
 async def run_clawd_bot(pause_event: asyncio.Event, daemon_status: dict):
@@ -232,6 +265,8 @@ async def run_clawd_bot(pause_event: asyncio.Event, daemon_status: dict):
         ("stats",       cmd_stats),
         ("viewrules",   cmd_viewrules),
         ("viewresume",  cmd_viewresume),
+        ("update",      cmd_update),
+        ("restart",     cmd_restart),
     ]
     for cmd, fn in handlers:
         app.add_handler(CommandHandler(cmd, make_handler(fn)))
